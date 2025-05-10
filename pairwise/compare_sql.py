@@ -3,7 +3,7 @@ import os
 from typing import List, Dict, Tuple
 from pathlib import Path
 from collections import defaultdict
-from db_utils import execute_sql
+from db_utils import execute_sql, build_db_path
 from dataclasses import dataclass
 import torch
 from transformers import (
@@ -181,36 +181,36 @@ def compare_sql_pairs(tokenizer, model, template, question, evidence, schema, kw
     for result in results:
         assert result in ['A', 'B'], f"模型输出必须是A或B，但得到了：{result}"
     
-    return results
+    return prompts, results
 
-def build_db_path(db_id: str)-> str:
-    """
-    构建数据库文件的完整路径
+# def build_db_path(db_id: str)-> str:
+#     """
+#     构建数据库文件的完整路径
     
-    参数:
-        db_id: 数据库标识符字符串，将作为目录名和文件名的一部分
+#     参数:
+#         db_id: 数据库标识符字符串，将作为目录名和文件名的一部分
         
-    返回:
-        数据库文件的完整绝对路径
+#     返回:
+#         数据库文件的完整绝对路径
         
-    异常:
-        ValueError: 如果db_id包含不安全的路径字符或为空
-    """
-    # 输入验证
-    if not db_id or not isinstance(db_id, str):
-        raise ValueError("db_id must be a non-empty string")
+#     异常:
+#         ValueError: 如果db_id包含不安全的路径字符或为空
+#     """
+#     # 输入验证
+#     if not db_id or not isinstance(db_id, str):
+#         raise ValueError("db_id must be a non-empty string")
     
-    # 安全检查 - 防止目录遍历攻击
-    if os.path.sep in db_id or (os.path.altsep and os.path.altsep in db_id):
-        raise ValueError("db_id cannot contain path separators")
+#     # 安全检查 - 防止目录遍历攻击
+#     if os.path.sep in db_id or (os.path.altsep and os.path.altsep in db_id):
+#         raise ValueError("db_id cannot contain path separators")
     
-    # 使用Path对象进行安全的路径拼接
-    root_dir = Path('/home/yangliu26/data/train/train_databases')
-    db_dir = root_dir / db_id
-    db_file = db_dir / f"{db_id}.sqlite"
+#     # 使用Path对象进行安全的路径拼接
+#     root_dir = Path('/home/yangliu26/data/train/train_databases')
+#     db_dir = root_dir / db_id
+#     db_file = db_dir / f"{db_id}.sqlite"
     
-    # 转换为字符串返回
-    return str(db_file.absolute())
+#     # 转换为字符串返回
+#     return str(db_file.absolute())
     
 def tournament_comparison(tokenizer, model, sql_list) -> Tuple[str, List[int]]:
     """使用锦标赛方式比较所有SQL语句"""
@@ -223,9 +223,10 @@ def tournament_comparison(tokenizer, model, sql_list) -> Tuple[str, List[int]]:
     n = len(sqls)
     scores = [0] * n  # 每个SQL的得分
     results = [None] * n
-    # db_path = build_db_path(db_id)
+    db_path = build_db_path(db_id)
     for i, sql in enumerate(sqls):
-        res, raw_result = execute_sql(db_id, sql)
+        # db_path = build_path
+        res, raw_result = execute_sql(db_path, sql)
         # 对结果进行截断（仅限字符串）
         if isinstance(raw_result, str) and len(raw_result) > 100:
             raw_result = raw_result[:100] + '...'
@@ -241,7 +242,7 @@ def tournament_comparison(tokenizer, model, sql_list) -> Tuple[str, List[int]]:
         for j in range(i + 1, n):
             kwargs.append([sqls[i], sqls[j], results[i], results[j]])
             
-    winners = compare_sql_pairs(tokenizer, model, template, question, evidence, schema, kwargs)
+    prompts, winners = compare_sql_pairs(tokenizer, model, template, question, evidence, schema, kwargs)
     cnt = 0
     for i in range(n):
         for j in range(i+1, n):
@@ -256,7 +257,7 @@ def tournament_comparison(tokenizer, model, sql_list) -> Tuple[str, List[int]]:
     
     # 找出得分最高的SQL
     best_idx = scores.index(max(scores))
-    return sqls[best_idx], scores
+    return sqls[best_idx], scores, prompts
 
 def process_json_files(input_files: List[str], tokenizer, model, output_file: str):
     """处理多个JSON文件中的SQL语句"""
@@ -264,25 +265,26 @@ def process_json_files(input_files: List[str], tokenizer, model, output_file: st
     sql_lists = defaultdict(dict)
     with open(input_files[0], 'r', encoding='utf-8') as f:
         sql_lists = json.load(f) 
-        # sql_lists = sql_lists[:1]
+        sql_lists = sql_lists[:1]
     # 读取所有JSON文件
     for i, file_path in enumerate(input_files[1:]):
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            # data = data[:1]
+            data = data[:1]
         for k, item in enumerate(data):
             if i == 0:
                 sql_lists[k]['sql_list'] = []
             sql_lists[k]['sql_list'].append(item['sql'])
 
     for i, sql_list in enumerate(sql_lists):
-        best_sql, scores = tournament_comparison(tokenizer, model, sql_list)
+        best_sql, scores, prompts = tournament_comparison(tokenizer, model, sql_list)
         # 记录结果
         result = {
             'question': sql_list.get('question', ''),
             'best_sql': best_sql,
             'all_sqls': sql_list.get('sql_list'),
-            'scores': scores
+            'scores': scores,
+            'prompts': prompts
         }
         all_results.append(result)
     
