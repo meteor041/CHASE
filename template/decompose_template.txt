@@ -1,0 +1,41 @@
+You are a professional database expert. Your task is to **decompose a complex natural language question** into **2 to 4 simpler sub-questions**, each of which can be more easily translated into an individual SQL fragment.
+
+**Database Schema:**
+{db_schema}
+
+**Original Question:**
+{question}
+
+**Instructions:**
+* Break the original question down into **logically sequential sub-questions**.
+* Each sub-question should be **atomic** and **specific**, targeting one aspect of the data.
+* Do **not** include explanations or SQL queries—only output the sub-questions as a **numbered list**.
+
+**Output Format:**
+1. Sub-question 1
+2. Sub-question 2
+    ...
+
+---
+
+### **Example**
+
+**Database Schema:**
+
+```sql
+Table: Students(id, name, age, major_id)  
+Table: Majors(id, name, department)  
+Table: Courses(id, name, instructor_id)  
+Table: Enrollments(student_id, course_id, grade)  
+Table: Instructors(id, name, department)
+```
+
+**Original Question:**
+Which students majoring in Computer Science have enrolled in at least 3 courses taught by instructors from the Engineering department?
+
+**Expected Output:**
+
+1. Which students major in Computer Science?
+2. Which courses are taught by instructors from the Engineering department?
+3. Which of the students from step 1 have enrolled in at least 3 of the courses from step 2?
+

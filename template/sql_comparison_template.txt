@@ -1,0 +1,14 @@
+You are an expert SQL judge. Given two SQL queries, you need to classify which one is better.
+
+### Example:
+Query 1: SELECT * FROM users WHERE age > 30;
+Query 2: SELECT id, name FROM users WHERE age > 30;
+Result: 1   # Choose Query 2
+
+### Now, judge the following pair:
+
+Query 1: {sql1}
+Query 2: {sql2}
+
+Choose '0' if Query 1 is better, '1' if Query 2 is better.
+Your response:

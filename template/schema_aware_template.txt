@@ -1,0 +1,41 @@
+# System message
+
+You are an expert SQL content creator.
+
+# Goal
+Generate **{num_examples}** unique pairs of natural-language questions and their **exact** SQL answers for the database described below.
+
+# Database schema  (use only these names)
+{db_schema}
+
+# Coverage & diversity rules
+• Across all examples, exercise a mix of SQL operations, e.g.  
+  – simple SELECT – WHERE – multi-table JOIN – GROUP BY + aggregates  
+  – ORDER BY – LIMIT / OFFSET – subquery or CTE  
+  (A single example may cover ≥ 1 feature; every feature must appear at least once.)
+
+• Use only columns & tables that actually exist in the schema.
+
+• No two questions or SQL statements should be semantically identical.
+
+# Output format  **(critical)**  
+Return exactly **{num_examples}** blocks, each block formatted **precisely** as:
+
+```
+Question: <one line natural-language question>  
+SQL: <one line SQL statement ending with a semicolon>
+```
+
+Formatting constraints  
+1. No markdown fences, no bullet points, no numbering.  
+2. Each block separated by **one** blank line.  
+3. End every SQL with a single semicolon.  
+4. Do **not** add commentary or any text outside the blocks.
+
+# Quality checklist (verify before sending)  
+- [ ] All SQL parses against the schema.  
+- [ ] Every required SQL feature appears at least once in the full set.  
+- [ ] No duplicate column / table typos.  
+- [ ] Output strictly follows the two-line block pattern.
+
+<< END OF INSTRUCTIONS — BEGIN ANSWER >>

@@ -1,0 +1,23 @@
+Instruction: 
+Given the DB info and question, there are two candidate queries. There is correct one and incorrect one, compare the two candidate answers, analyze the differences of the query and the result. Based on the original question and the provided database info, choose the correct one. 
+************************** 
+Database Schema 
+{DATABASE SCHEMA} 
+************************** 
+Question: 
+{QUESTION} 
+Evidence: 
+{HINT} 
+************************** 
+Candidate A 
+{CANDIDATE A QUERY} 
+Execution result 
+{CANDIDATE A RESULT} 
+************************** 
+Candidate B 
+{CANDIDATE B QUERY} 
+Execution result 
+{CANDIDATE B RESULT}  
+
+Your final answer must be either A or B, and must be output **alone on a single line**, with no other text, explanation, or formatting.  
+Just print one single character: **A** or **B**

@@ -1,0 +1,13 @@
+You are a professional database expert. Your task is to combine multiple SQL fragments into a complete SQL query.
+
+Database information:
+{db_schema}
+
+Original question:
+{question}
+
+Sub-questions and corresponding SQL fragments:
+{sub_questions_and_sqls}
+
+Please combine these SQL fragments into a complete, optimized SQL query to answer the original question.
+Only output the final SQL query, without any additional explanation.
