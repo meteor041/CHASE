@@ -6,12 +6,16 @@ from collections import defaultdict
 from db_utils import execute_sql, build_db_path
 from dataclasses import dataclass
 import torch
+import logging
+from tqdm import tqdm
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
     pipeline,
     BitsAndBytesConfig,
 )
+
+logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s - %(message)s")
 
 # ---------- 可调参数 ----------
 @dataclass
@@ -51,6 +55,7 @@ def load_model_and_tokenizer(cfg: Config):
         quantization_config=quant_cfg,
         device_map=cfg.device_map,
     )
+    logging.info(f"Loaded tokenizer & model from {cfg.model_name}, fp16={cfg.use_fp16}")
     return tokenizer, model
 
 def llm_call(model, tokenizer, prompt: str, max_new_tokens_num=128)-> str:
@@ -223,6 +228,7 @@ def tournament_comparison(tokenizer, model, sql_list) -> Tuple[str, List[int]]:
     n = len(sqls)
     scores = [0] * n  # 每个SQL的得分
     results = [None] * n
+    logging.info(f"Starting tournament for db_id={db_id}, {n} candidates")
     db_path = build_db_path(db_id)
     for i, sql in enumerate(sqls):
         # db_path = build_path
@@ -265,18 +271,20 @@ def process_json_files(input_files: List[str], tokenizer, model, output_file: st
     sql_lists = defaultdict(dict)
     with open(input_files[0], 'r', encoding='utf-8') as f:
         sql_lists = json.load(f) 
-        sql_lists = sql_lists[:1]
+        sql_lists = sql_lists[:2]
     # 读取所有JSON文件
-    for i, file_path in enumerate(input_files[1:]):
+    for i, file_path in enumerate(tqdm(input_files[1:],desc="Reading JSON files")):
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            data = data[:1]
+            data = data[:2]
+        logging.info(f"Loaded {len(data)} items from {file_path}")
         for k, item in enumerate(data):
             if i == 0:
                 sql_lists[k]['sql_list'] = []
             sql_lists[k]['sql_list'].append(item['sql'])
 
-    for i, sql_list in enumerate(sql_lists):
+    for i, sql_list in enumerate(tqdm(sql_lists, desc="Comparing SQL sets")):
+        logging.info(f"[{i+1}/{len(sql_lists)}] Comparing {len(sql_list['sql_list'])} SQLs for question: {sql_list.get('question')!r}")
         best_sql, scores, prompts = tournament_comparison(tokenizer, model, sql_list)
         # 记录结果
         result = {
@@ -296,9 +304,8 @@ def process_json_files(input_files: List[str], tokenizer, model, output_file: st
     return all_results
 
 def main():
-    """主函数示例"""
-    # 这里需要替换为实际的模型实例
-    tokenizer, model = load_model_and_tokenizer(CFG)  # 实际使用时需要初始化模型
+    logging.info(f"Starting comparison script with config: {CFG}")
+    tokenizer, model = load_model_and_tokenizer(CFG)  
     
     input_files = [
         '/home/yangliu26/data/train/schema_linking_result.json',
