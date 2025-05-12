@@ -1,0 +1,11 @@
+.ipynb_checkpoints
+candidates/*
+!candidates/*.py
+pairwise/*
+!pairwise/*.py
+schema_linking_lxy/*
+!schema_linking_lxy/*.py
+template/*
+!template/*.txt
+utils/*
+!utils/*.py
