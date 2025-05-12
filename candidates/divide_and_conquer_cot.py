@@ -21,7 +21,6 @@ import time
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
-    pipeline,
     BitsAndBytesConfig,
 )
 
@@ -36,10 +35,10 @@ class Config:
     do_sample: bool = True
     temperature: float = 0.7
     # 性能设置
-    num_gpus: int = 4
-    batch_size: int = 1
+    num_gpus: int = 3
+    batch_size: int = 8
     use_fp16: bool = True
-    device_map: str = {"": "cuda:0"}
+    device_map = {"" : 0}
 
 # 配置实例
 CFG = Config()
@@ -133,7 +132,7 @@ def llm_call(model, tokenizer, prompt: str, max_new_tokens_num=128)-> str:
 
     return content 
 
-def merge_results(output_dir: str, num_gpus: int, merged_file: str, gpu_id: int):
+def merge_results(output_dir: str, num_gpus: int, merged_file: str):
     results = []
     for i in range(num_gpus):
         path = Path(output_dir) / f"cot_result_gpu{i}.jsonl"
@@ -142,7 +141,7 @@ def merge_results(output_dir: str, num_gpus: int, merged_file: str, gpu_id: int)
                 for line in f:
                     results.append(json.loads(line))
         else:
-            logging.critical(f"[GPU-{gpu_id}] {path} don't exist!")
+            logging.critical(f"[GPU-{i}] {path} don't exist!")
     with open(Path(output_dir) / merged_file, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
         
@@ -231,10 +230,8 @@ def decompose_question(batch, generator, prompt_list, init_pos: int):
                         sub_q = sub_q[len(prefix):]
                         break
                 sub_questions[-1].append(sub_q)
-    i = 0
-    for idx in range(init_pos, len(sub_questions)):
+    for i, idx in enumerate(range(init_pos, init_pos + len(batch))):
         prompt_list[idx].append(prompts[i])
-        i += 1
     return sub_questions
 
 
@@ -285,7 +282,7 @@ def assemble_sql(batch, sub_questions_list: List[List[str]],
             sub_questions_and_sqls=sub_qs_and_sql
         ) for item, sub_qs_and_sql in zip(batch, sub_qs_and_sqls)]
     
-    for i, k in enumerate(range(init_pos, len(prompts))):
+    for i, k in enumerate(range(init_pos, init_pos + len(batch))):
         prompt_list[k].append(prompts[i])
     return llm_batch_call(generator[0], generator[1], prompts, 128)
 
@@ -317,7 +314,7 @@ def process_item(gpu_id: int, data: List[Dict[str, Any]]) -> Dict[str, Any]:
     results = []
     out_path = Path(CFG.output_dir) / f"cot_result_gpu{gpu_id}.jsonl"
     out_path.write_text("")
-    for i, batch in enumerate(batched_data):
+    for i, batch in enumerate(tqdm(batched_data, desc=f"[GPU {gpu_id}] Running")):
         idx_offset = i * CFG.batch_size
         sub_questions_list, partial_sqls_list, final_sqls = divide_and_conquer_sql(
             batch, generator, prompt_list, idx_offset
@@ -336,7 +333,7 @@ def process_item(gpu_id: int, data: List[Dict[str, Any]]) -> Dict[str, Any]:
         if (i + 1) % 10 == 0 or (i + 1) == len(batched_data):
             with open(out_path, "a", encoding="utf-8") as f:
                 for r in results:
-                    logging.info(f"[GPU-{gpu_id}] {r}")
+                    # logging.info(f"[GPU-{gpu_id}] {r}")
                     f.write(json.dumps(r, ensure_ascii=False) + "\n")
             results = []  # 清空已写入部分缓存
 
@@ -345,12 +342,12 @@ def process_data_parallel():
     
     with open(CFG.input_json, 'r', encoding='utf-8') as f:
         data = json.load(f)
+    # data = data[:40]
     chunks = split_data(data, CFG.num_gpus)
 
     for i, chunk in enumerate(chunks):
         logging.info(f"分配给 GPU-{i}: {len(chunk)} 条样本")
     import multiprocessing as mp
-    # ctx = mp.get_context("spawn")
     processes = []
     for gpu_id in range(CFG.num_gpus):
         p = mp.Process(target=process_item, args=(gpu_id, chunks[gpu_id]))
@@ -362,7 +359,7 @@ def process_data_parallel():
     for p in processes:
         p.join()
                 
-    merge_results(CFG.output_dir, CFG.num_gpus, "cot_result_merged.json", gpu_id)
+    merge_results(CFG.output_dir, CFG.num_gpus, "cot_result_merged.json")
         
 if __name__ == "__main__":
     logging.basicConfig(
