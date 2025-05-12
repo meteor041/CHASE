@@ -111,6 +111,66 @@ def llm_call(model, tokenizer, prompt: str, max_new_tokens_num=128)-> str:
 
     return content 
 
+def llm_batch_call(model, tokenizer, prompts: List[str],
+             max_new_tokens_num=128,
+             do_sample: bool = True, 
+             temperature: float = 0.6,
+             top_p: float = 0.95,
+             top_k: int = 20)-> List[str]:
+    messages = [
+        {
+            "role": "user", "content": prompt
+        }
+        for prompt in prompts
+    ]
+    kwargs = dict(tokenize=False, add_generation_prompt=True, enable_thinking=False)
+    # if "enable_thinking" in tokenizer.apply_chat_template.__code__.co_varnames:
+    #     kwargs["enable_thinking"] = False
+    text_batch = [tokenizer.apply_chat_template([m], **kwargs) for m in messages]
+    model_inputs = tokenizer(
+        text_batch, 
+        padding=True, 
+        truncation=True,         # ✅ 若超过模型 max length 则截断
+        return_tensors="pt"
+    ).to(model.device)
+    
+    # conduct text completion
+    outputs = model.generate(
+        **model_inputs,
+        max_new_tokens=max_new_tokens_num,
+        do_sample=do_sample,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k
+    )
+    # 解码每个生成结果（去掉prompt部分）
+    # decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+    # prompts_decoded = tokenizer.batch_decode(model_inputs["input_ids"], skip_special_tokens=True)
+    # completions = [full[len(prompt):].strip() for full, prompt in zip(decoded, prompts_decoded)]
+
+    # return completions
+    output_ids = [
+        output[len(input_ids):].tolist()
+        for output, input_ids in zip(outputs, model_inputs.input_ids)
+    ]
+    
+    # parsing thinking content
+    try:
+        # rindex finding 151668 (</think>)
+        indexes = [
+            len(output_id) - output_ids[::-1].index(151668) 
+            for output_id in output_ids
+        ]
+    except ValueError:
+        indexes = [0 for _ in output_ids]
+    
+    contents = [
+        tokenizer.decode(output_id[index:], skip_special_tokens=True).strip("\n") 
+        for index, output_id in zip(indexes, output_ids)
+    ]
+
+    return contents 
+
 def batched(iterable: List[Any], n: int):
     """将列表分批切片"""
     for i in range(0, len(iterable), n):
@@ -125,73 +185,81 @@ GENERAL_EXAMPLES_TEMPLATE = load_prompt_template("/home/yangliu26/CHASE/template
 SCHEMA_AWARE_TEMPLATE = load_prompt_template("/home/yangliu26/CHASE/template/schema_aware_template.txt")
 FEW_SHOT_TEMPLATE = load_prompt_template("/home/yangliu26/CHASE/template/os_few_shot_template.txt")
 
-def generate_examples_by_sql_features(db_schema: str, num_examples: int, generator) -> List[Tuple[str, str]]:
+def generate_examples_by_sql_features(items, num_examples: int, generator) -> List[Tuple[str, str]]:
     """生成涵盖不同SQL特性的示例"""
-    prompt = GENERAL_EXAMPLES_TEMPLATE.format(
-        db_schema=db_schema,
-        num_examples=num_examples
-    )
-    text = llm_call(generator[0], generator[1], prompt, 256).strip()
-    # response = generator(prompt, max_new_tokens=256, do_sample=True, temperature=0.5, enable_thinking=False)
-    # text = response[0]["generated_text"].strip()
-    logging.info("步骤1: %s", text)
+    prompts = [
+        GENERAL_EXAMPLES_TEMPLATE.format(
+            db_schema=tables_info.get(item.get("db_id")),
+            num_examples=num_examples
+        ) 
+        for item in items
+    ]
+    texts = llm_batch_call(generator[0], generator[1], prompts, 256)
     # 解析示例
-    examples = []
-    lines = text.split('\n')
-    i = 0
-    while i < len(lines):
-        if lines[i].startswith("Question:"):
-            question = lines[i][9:].strip()
-            i += 1
-            # 寻找SQL行
-            while i < len(lines) and not lines[i].startswith("SQL:"):
-                i += 1
-            if i < len(lines):
-                sql = lines[i][4:].strip()
-                examples.append((question, sql))
-        i += 1
+    examples_list = [[] for _ in range(len(items))]
     
-    return prompt, text, examples[:num_examples]  # 确保不超过请求的数量
+    for j, text in enumerate(texts):
+        lines = text.split('\n')
+        i = 0
+        while i < len(lines):
+            if lines[i].startswith("Question:"):
+                question = lines[i][9:].strip()
+                i += 1
+                # 寻找SQL行
+                while i < len(lines) and not lines[i].startswith("SQL:"):
+                    i += 1
+                if i < len(lines):
+                    sql = lines[i][4:].strip()
+                    examples_list[j].append((question, sql))
+            i += 1
+    
+    return prompts, texts, [examples[:num_examples] for examples in examples_list]  # 确保不超过请求的数量
 
-def generate_examples_by_schema(db_schema: str, num_examples: int, generator) -> List[Tuple[str, str]]:
+def generate_examples_by_schema(items, num_examples: int, generator) -> List[Tuple[str, str]]:
     """生成基于特定schema的示例"""
-    prompt = SCHEMA_AWARE_TEMPLATE.format(
-        db_schema=db_schema,
-        num_examples=num_examples
-    )
-    text = llm_call(generator[0], generator[1], prompt, 256).strip()
-    # response = generator(prompt, max_new_tokens=256, do_sample=True, temperature=0.5, enable_thinking=False)
-    # text = response[0]["generated_text"].strip()
-    logging.info("步骤2: %s",text)
+    prompts = [
+        SCHEMA_AWARE_TEMPLATE.format(
+            db_schema=item.get("schema_linking"),
+            num_examples=num_examples
+        )
+        for item in items
+    ]
+    texts = llm_batch_call(generator[0], generator[1], prompts, 256)
     # 解析示例
-    examples = []
-    lines = text.split('\n')
-    i = 0
-    while i < len(lines):
-        if lines[i].startswith("Question:"):
-            question = lines[i][9:].strip()
-            i += 1
-            # 寻找SQL行
-            while i < len(lines) and not lines[i].startswith("SQL:"):
+    examples_list = [[] for _ in range(len(items))]
+    
+    for j, text in enumerate(texts):
+        lines = text.split('\n')
+        i = 0
+        while i < len(lines):
+            if lines[i].startswith("Question:"):
+                question = lines[i][9:].strip()
                 i += 1
-            if i < len(lines):
-                sql = lines[i][4:].strip()
-                examples.append((question, sql))
-        i += 1
+                # 寻找SQL行
+                while i < len(lines) and not lines[i].startswith("SQL:"):
+                    i += 1
+                if i < len(lines):
+                    sql = lines[i][4:].strip()
+                    examples_list[j].append((question, sql))
+            i += 1
     
-    return prompt, text, examples[:num_examples]  # 确保不超过请求的数量
+    return prompts, texts, [examples[:num_examples] for examples in examples_list]  # 确保不超过请求的数量
 
-def format_few_shot_prompt(examples: List[Tuple[str, str]], question: str, db_schema: str) -> str:
+def format_few_shot_prompt(examples_list: List[List[Tuple[str, str]]], items) -> str:
     """格式化few-shot提示"""
-    examples_text = ""
-    for i, (q, sql) in enumerate(examples, 1):
-        examples_text += f"Example {i}:\nQuestion: {q}\nSQL: {sql}\n"
+    examples_text_list = ["" for _ in range(len(items))]
+    for j, examples in enumerate(examples_list):
+        for i, (q, sql) in enumerate(examples, 1):
+            examples_text_list[j] += f"Example {i}:\nQuestion: {q}\nSQL: {sql}\n"
     
-    return FEW_SHOT_TEMPLATE.format(
-        db_schema=db_schema,
-        examples=examples_text,
-        question=question
-    )
+    return [
+        FEW_SHOT_TEMPLATE.format(
+            db_schema=item.get("schema_linking"),
+            examples=examples_text,
+            question=item.get("question")
+        )
+        for item, examples_text in zip(items, examples_text_list)
+    ]
 
 def extract_sql(text: str) -> str:
     logging.info("text: %s", text)
@@ -225,29 +293,26 @@ def extract_sql(text: str) -> str:
         return obj
     return sql.strip()
 
-def online_synthetic_icl(question: str, db_whole_schema: str, db_schema: str, generator, 
+def online_synthetic_icl(item, generator, 
                          num_general: int = 3, num_schema_aware: int = 3):
     """主函数：使用在线合成示例方法生成SQL"""
     logging.info("步骤1: 使用常见SQL特征生成通用示例")
-    prompt1, raw_output1, general_examples = generate_examples_by_sql_features(db_whole_schema, num_general, generator)
+    prompt1, raw_output1, general_examples = generate_examples_by_sql_features(item, num_general, generator)
     logging.info("完成步骤1")
     logging.info("步骤2: 生成schema-aware示例")
-    prompt2, raw_output2, schema_examples = generate_examples_by_schema(db_schema, num_schema_aware, generator)
+    prompt2, raw_output2, schema_examples = generate_examples_by_schema(item, num_schema_aware, generator)
     logging.info("完成步骤2")
     logging.info("步骤3: 组合所有示例 + 当前问题进入Prompt")
-    prompt = format_few_shot_prompt(general_examples + schema_examples, question, db_schema)
+    example_combined = [
+        general_example + schema_example 
+        for general_example, schema_example in zip(general_examples, schema_examples)
+    ]
+    prompts = format_few_shot_prompt(example_combined, item)
     logging.info("完成步骤3")
     logging.info("步骤4: 生成SQL")
-    response = llm_call(generator[0], generator[1], prompt, 128)
-    # response = generator(prompt, max_new_tokens=128, do_sample=True, enable_thinking=False)
+    responses = llm_batch_call(generator[0], generator[1], prompts, 128)
     logging.info("完成SQL生成")
-    return prompt1, raw_output1, general_examples, prompt2, raw_output2, schema_examples, prompt, extract_sql(response)
-
-# def safe_process_single_item(item: Dict[str, Any]) -> Dict[str, Any]:
-#     # 每个进程内加载模型
-#     tokenizer, model = load_model_and_tokenizer(CFG)
-#     generator = [model, tokenizer]
-#     return process_single_item(item, generator)
+    return prompt1, raw_output1, general_examples, prompt2, raw_output2, schema_examples, prompts, [extract_sql(response) for response in responses]
     
 def process_single_item(item: Dict[str, Any], generator) -> Dict[str, Any]:
     question = item.get("question", "")
@@ -283,6 +348,38 @@ def process_single_item(item: Dict[str, Any], generator) -> Dict[str, Any]:
         logging.info(f"处理样本 {item.get('id', '')} 时出错: {e}")
         return None
 
+def process_multiple_item(items: List[Dict[str, Any]], generator) -> Dict[str, Any]:
+    # 使用OS方法生成SQL
+    try:
+        prompt1_list, raw_output1_list, general_examples_list, prompt2_list, raw_output2_list, schema_examples_list, prompt_list, generated_sql_list = online_synthetic_icl(
+            items,
+            generator,
+            num_general=CFG.num_general_examples,
+            num_schema_aware=CFG.num_schema_aware_examples
+        )
+        
+        # 保存结果
+        return [
+            {
+            "id": item.get("id", ""),
+            "question": item.get("question"),
+            "db_schema": item.get("schema_linking"),
+            "sql": generated_sql,
+            "prompt1": prompt1,
+            "raw_output1": raw_output1,
+            "general_examples": general_examples,
+            "prompt2": prompt2,
+            "raw_output2": raw_output2,
+            "schema_examples": schema_examples,
+            "prompt": prompt
+            }
+            for item, generated_sql, prompt1, raw_output1, general_examples, prompt2, raw_output2, schema_examples, prompt in 
+                zip(items, generated_sql_list, prompt1_list, raw_output1_list, general_examples_list, prompt2_list, raw_output2_list, schema_examples_list, prompt_list)
+        ]
+    except Exception as e:
+        logging.info(f"处理样本 {items[0].get('id', '')} 时出错: {e}")
+        return None
+    
 from queue import Queue
 from threading import Thread
 
@@ -306,18 +403,6 @@ def process_data():
         data = json.load(f)
     data = data[:2]
     logging.info(f"加载数据完成,读取并选择{len(data)}个数据")
-    # results = []
-    # logging.info("加载模型")
-    # tokenizer, model = load_model_and_tokenizer(CFG)
-    # generator = [model, tokenizer]
-    # with ProcessPoolExecutor(max_workers=4) as executor:
-    #     # 提交所有任务
-    #     futures = [executor.submit(safe_process_single_item, item, generator) for item in data]
-    #     # 使用tqdm显示进度
-    #     for future in tqdm(futures, total=len(data), desc="处理样本"):
-    #         result = future.result()
-    #         if result is not None:
-    #             results.append(result) 
     # 主函数
     task_queue = Queue()
     result_queue = Queue()
