@@ -3,7 +3,7 @@ import os
 from typing import List, Dict, Tuple
 from pathlib import Path
 from collections import defaultdict
-from db_utils import execute_sql, build_db_path
+from db_utils import subprocess_sql_executor, build_db_path
 from dataclasses import dataclass
 import torch
 import logging
@@ -232,7 +232,7 @@ def tournament_comparison(tokenizer, model, sql_list) -> Tuple[str, List[int]]:
     db_path = build_db_path(db_id)
     for i, sql in enumerate(sqls):
         # db_path = build_path
-        res, raw_result = execute_sql(db_path, sql)
+        res, raw_result = subprocess_sql_executor(db_path, sql)
         # 对结果进行截断（仅限字符串）
         if isinstance(raw_result, str) and len(raw_result) > 100:
             raw_result = raw_result[:100] + '...'
@@ -271,12 +271,12 @@ def process_json_files(input_files: List[str], tokenizer, model, output_file: st
     sql_lists = defaultdict(dict)
     with open(input_files[0], 'r', encoding='utf-8') as f:
         sql_lists = json.load(f) 
-        sql_lists = sql_lists[:2]
+        # sql_lists = sql_lists[:2]
     # 读取所有JSON文件
     for i, file_path in enumerate(tqdm(input_files[1:],desc="Reading JSON files")):
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            data = data[:2]
+            # data = data[:2]
         logging.info(f"Loaded {len(data)} items from {file_path}")
         for k, item in enumerate(data):
             if i == 0:

@@ -82,12 +82,12 @@ def execute_sql(db_path: str, sql: str, fetch: Union[str, int] = "all", timeout:
     query_thread.join(timeout)
     if query_thread.is_alive():
         # query_thread._stop()  # 强制终止（需谨慎）
-        return False, TimeoutError(f"SQL query execution exceeded the timeout of {timeout} seconds.")
+        return TimeoutError(f"SQL query execution exceeded the timeout of {timeout} seconds.")
     if query_thread.exception:
         # logging.info(f"{query_thread.exception}")
-        return False, query_thread.exception
+        return query_thread.exception
 
-    return True, query_thread.result
+    return query_thread.result
 
 
 def _clean_sql(sql: str) -> str:
@@ -152,11 +152,11 @@ def subprocess_sql_executor(db_path: str, sql: str, timeout: int = 60):
         try:
             result = queue.get_nowait()
         except Empty:
-            raise Exception("No data returned from the process.")
+            raise False, Exception("No data returned from the process.")
         
         if isinstance(result, Exception):
-            raise result
-        return result
+            raise False, result
+        return True, result
 
 # def execute_sql(db_path: str, sql: str, fetch: Union[str, int] = "all") -> Any:
 #     """
