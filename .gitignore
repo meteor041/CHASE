@@ -3,6 +3,8 @@ candidates/*
 !candidates/*.py
 pairwise/*
 !pairwise/*.py
+!pairwise/ds_config_lora.json
+!pairwise/validate.sh
 schema_linking_lxy/*
 !schema_linking_lxy/*.py
 template/*
