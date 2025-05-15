@@ -1,6 +1,8 @@
 .ipynb_checkpoints
 candidates/*
 !candidates/*.py
+!candidates/vllm/
+candidates/vllm/*
 !candidates/vllm/*.py
 pairwise/*
 !pairwise/*.py
