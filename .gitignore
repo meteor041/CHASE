@@ -1,6 +1,7 @@
 .ipynb_checkpoints
 candidates/*
 !candidates/*.py
+!candidates/vllm/*.py
 pairwise/*
 !pairwise/*.py
 !pairwise/ds_config_lora.json
