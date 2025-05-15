@@ -90,7 +90,7 @@ def load_model_and_tokenizer(cfg: Config):
         local_files_only=True,
     )
     # if hasattr(model.generation_config, "enable_thinking"):
-    model.generation_config.enable_thinking = False
+    model.generation_config.enable_thinking = True
     model.config.attn_implementation = "flash_attention_2"
     return tokenizer, model
 
@@ -240,7 +240,7 @@ def run_multi_gpu():
     os.makedirs(CFG.output_dir, exist_ok=True)
     with open(CFG.input_json, "r", encoding="utf-8") as f:
         data = json.load(f)
-    # data = data[:40]
+    data = data[:1]
     prompt_tpl = load_prompt_template(CFG.prompt_file)
     chunks = split_data(data, CFG.num_gpus)
 

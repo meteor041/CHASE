@@ -12,10 +12,17 @@ You are a professional database expert. Your task is to **decompose a complex na
 * Do **not** include explanations or SQL queries—only output the sub-questions as a **numbered list**.
 
 **Output Format:**
+<think> 
+Write your reasoning in **no more than 5 concise sentences**.  
+- Use short sentences (preferably under 20 words each).  
+- Do NOT write SQL or numbered steps here.  
+- End the reasoning immediately after the 5th sentence or earlier.
+</think>
+<Answer>
 1. Sub-question 1
 2. Sub-question 2
     ...
-
+</Answer>
 ---
 
 ### **Example**

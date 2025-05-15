@@ -11,3 +11,16 @@ Sub-questions and corresponding SQL fragments:
 
 Please combine these SQL fragments into a complete, optimized SQL query to answer the original question.
 Only output the final SQL query, without any additional explanation.
+
+**Output Format:**
+<think> 
+Write your reasoning in **no more than 5 concise sentences**.  
+- Use short sentences (preferably under 20 words each).  
+- Do NOT write SQL or numbered steps here.  
+- End the reasoning immediately after the 5th sentence or earlier.
+</think>
+<Answer>
+```sql
+Your final optimized SQL query here
+```
+</Answer>

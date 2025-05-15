@@ -34,8 +34,9 @@ class Config:
     max_new_tokens: int = 1024
     do_sample: bool = True
     temperature: float = 0.7
+    enable_thinking: bool = True
     # 性能设置
-    num_gpus: int = 3
+    num_gpus: int = 1
     batch_size: int = 8
     use_fp16: bool = True
     device_map = {"" : 0}
@@ -56,6 +57,7 @@ def load_model_and_tokenizer(cfg: Config):
         padding_side="left",
         local_files_only=True,
     )
+    print(tokenizer.tokenize("<think> This is reasoning. </think>"))
     model = AutoModelForCausalLM.from_pretrained(
         cfg.model_name,
         trust_remote_code=True,
@@ -88,6 +90,8 @@ def load_prompt_template(path: str) -> str:
 
 PARTIAL_SQL_TEMPLATE = load_prompt_template(r"/home/yangliu26/CHASE/template/partial_sql_template.txt")
 ASSEMBLE_TEMPLATE = load_prompt_template(r"/home/yangliu26/CHASE/template/assemble_template.txt")
+DECOMPOSE_TEMPLATE = load_prompt_template(r"/home/yangliu26/CHASE/template/decompose_template.txt")
+
 def extract_sql_block(generated_text: str) -> str:
     """从模型输出中提取 ```sql ... ``` 中间内容"""
     pattern = r"```sql\s+(.*?)\s*```"
@@ -106,7 +110,7 @@ def llm_call(model, tokenizer, prompt: str, max_new_tokens_num=128)-> str:
         messages,
         tokenize=False,
         add_generation_prompt=True,
-        enable_thinking=False # 一定要关闭深度思考
+        enable_thinking=CFG.enable_thinking # 一定要关闭深度思考
     )
     model_inputs = tokenizer(text, return_tensors="pt").to(model.device)
     
@@ -157,7 +161,7 @@ def llm_batch_call(model, tokenizer, prompts: List[str],
         }
         for prompt in prompts
     ]
-    kwargs = dict(tokenize=False, add_generation_prompt=True, enable_thinking=False)
+    kwargs = dict(tokenize=False, add_generation_prompt=True, enable_thinking=CFG.enable_thinking)
     # if "enable_thinking" in tokenizer.apply_chat_template.__code__.co_varnames:
     #     kwargs["enable_thinking"] = False
     text_batch = [tokenizer.apply_chat_template([m], **kwargs) for m in messages]
@@ -167,7 +171,6 @@ def llm_batch_call(model, tokenizer, prompts: List[str],
         truncation=True,         # ✅ 若超过模型 max length 则截断
         return_tensors="pt"
     ).to(model.device)
-    
     # conduct text completion
     outputs = model.generate(
         **model_inputs,
@@ -177,10 +180,6 @@ def llm_batch_call(model, tokenizer, prompts: List[str],
         top_p=top_p,
         top_k=top_k
     )
-    # 解码每个生成结果（去掉prompt部分）
-    # decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-    # prompts_decoded = tokenizer.batch_decode(model_inputs["input_ids"], skip_special_tokens=True)
-    # completions = [full[len(prompt):].strip() for full, prompt in zip(decoded, prompts_decoded)]
 
     # return completions
     output_ids = [
@@ -192,22 +191,26 @@ def llm_batch_call(model, tokenizer, prompts: List[str],
     try:
         # rindex finding 151668 (</think>)
         indexes = [
-            len(output_id) - output_ids[::-1].index(151668) 
+            len(output_id) - output_id[::-1].index(151668) 
             for output_id in output_ids
         ]
     except ValueError:
         indexes = [0 for _ in output_ids]
-    
+
+    thinking_contents = [
+        tokenizer.decode(output_id[:index], skip_special_tokens=True).strip("\n")
+        for index, output_id in zip(indexes, output_ids)
+    ]
     contents = [
         tokenizer.decode(output_id[index:], skip_special_tokens=True).strip("\n") 
         for index, output_id in zip(indexes, output_ids)
     ]
-
-    return contents 
+    print(thinking_contents)
+    print(contents)
+    return thinking_contents, contents 
  
 def decompose_question(batch, generator, prompt_list, init_pos: int):
     # 分解步骤的提示词模板
-    DECOMPOSE_TEMPLATE = load_prompt_template(r"/home/yangliu26/CHASE/template/decompose_template.txt")
     """将问题分解为多个子问题"""
     prompts = [DECOMPOSE_TEMPLATE.format(
         question=item.get("question"),
@@ -215,7 +218,7 @@ def decompose_question(batch, generator, prompt_list, init_pos: int):
         ) 
                for item in batch]
     
-    texts = llm_batch_call(generator[0], generator[1], prompts, 512)
+    thinking_texts, texts = llm_batch_call(generator[0], generator[1], prompts, None)
     # 解析子问题
     sub_questions = []
     for text in texts:
@@ -258,10 +261,10 @@ def generate_partial_sql(batch, sub_questions_list, generator, prompt_list, init
                 history=history,
                 db_schema=item.get("schema_linking")
             ) for sub_question, item, history in zip(current_sub_questions, batch, histories)]
-        ret = llm_batch_call(generator[0], generator[1], prompts, 512)
+        _, ret = llm_batch_call(generator[0], generator[1], prompts, None)
         for j, sql in enumerate(ret):
             if i < len(sub_questions_list[j]):
-                partial_sqls[j].append(sql)
+                partial_sqls[j].append(extract_sql_block(sql))
                 prompt_list[init_pos+j].append(prompts[j])
     return partial_sqls
 
@@ -284,7 +287,8 @@ def assemble_sql(batch, sub_questions_list: List[List[str]],
     
     for i, k in enumerate(range(init_pos, init_pos + len(batch))):
         prompt_list[k].append(prompts[i])
-    return llm_batch_call(generator[0], generator[1], prompts, 128)
+    _, rets = llm_batch_call(generator[0], generator[1], prompts, None)
+    return [extract_sql_block(ret) for ret in rets]
 
 def optimize_sql(sql: str, generator) -> str:
     """优化SQL查询（可选）"""
@@ -342,7 +346,7 @@ def process_data_parallel():
     
     with open(CFG.input_json, 'r', encoding='utf-8') as f:
         data = json.load(f)
-    # data = data[:40]
+    data = data[:20]
     chunks = split_data(data, CFG.num_gpus)
 
     for i, chunk in enumerate(chunks):

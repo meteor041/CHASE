@@ -13,3 +13,16 @@ Question:
 
 Please generate an SQL fragment that corresponds to this question. It doesn't need to be a complete SQL query, just the SQL part that solves this sub-question.
 Only output the SQL fragment, without any additional explanation.
+
+Output Format:
+<think> 
+Write your reasoning in **no more than 5 concise sentences**.  
+- Use short sentences (preferably under 20 words each).  
+- Do NOT write SQL or numbered steps here.  
+- End the reasoning immediately after the 5th sentence or earlier.
+</think>
+<Answer>
+```sql
+Your final optimized SQL query here
+```
+</Answer>
