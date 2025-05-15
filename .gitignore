@@ -6,8 +6,8 @@ pairwise/*
 !pairwise/*.py
 !pairwise/ds_config_lora.json
 !pairwise/validate.sh
-schema_linking_lxy/*
-!schema_linking_lxy/*.py
+schema_linking/*
+!schema_linking/*.py
 template/*
 !template/*.txt
 utils/*
