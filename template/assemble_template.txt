@@ -12,6 +12,10 @@ Sub-questions and corresponding SQL fragments:
 Please combine these SQL fragments into a complete, optimized SQL query to answer the original question.
 Only output the final SQL query, without any additional explanation.
 
+STRICT INSTRUCTION:  
+You MUST wrap the final SQL in a fenced code block using triple backticks and the `sql` language tag.  
+Do NOT skip or modify the format. Follow the output format **exactly**.
+
 **Output Format:**
 <think> 
 Write your reasoning in **no more than 5 concise sentences**.  

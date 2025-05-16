@@ -14,6 +14,10 @@ Question:
 Please generate an SQL fragment that corresponds to this question. It doesn't need to be a complete SQL query, just the SQL part that solves this sub-question.
 Only output the SQL fragment, without any additional explanation.
 
+**STRICT REQUIREMENT:**  
+You MUST wrap the final SQL in a fenced code block using triple backticks and the `sql` language tag.  
+Do **not** skip the code block. Do **not** change the format. Follow the output format **exactly**.
+
 Output Format:
 <think> 
 Write your reasoning in **no more than 5 concise sentences**.  
