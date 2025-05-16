@@ -3,6 +3,7 @@ candidates/*
 !candidates/*.py
 !candidates/vllm/
 candidates/vllm/*
+!candidates/vllm/run.sh
 !candidates/vllm/*.py
 pairwise/*
 !pairwise/*.py
