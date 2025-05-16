@@ -23,11 +23,16 @@ def get_schema_map(schema_json_path: str) -> Dict[str, Any]:
         db_schema_map[db_id] = db
     return db_schema_map
 
+import re
+def needs_quotes(column_name: str) -> bool:
+    # 合法 SQL 标识符: 以字母或下划线开头，后面是字母/数字/下划线
+    return not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', column_name)
+    
 async def async_main():
     with open(TRAIN_JSON_PATH, "r", encoding="utf-8") as f:
         data = json.load(f)
     # 取前10个数据作为测试
-    # data = data[:40]
+    # data = data[260:270]
     schema_map = get_schema_map(SCHEMA_JSON_PATH)
     print("---schema_map提取完成---")
     extractor = KeywordExtractor(MODEL_PATH)
@@ -53,7 +58,7 @@ async def async_main():
         # 格式化
         formatted_linking = {}
         for matches in linking_results:
-            for kw, schema_item, table_name, col_type, is_pk, fk_pair, score, this_idx in matches:
+            for kw, schema_item, table_name, col_type, is_pk, fk_pairs, score, this_idx in matches:
                 formatted_linking.setdefault(table_name, [])
                 # fk_target = None
                 # if fk_pair is not None:
@@ -73,10 +78,11 @@ async def async_main():
                     }
                 )
                 # -- 若存在外键，再补充引用表/列 -------------------------------
-                if fk_pair is not None:
+                for fk_pair in fk_pairs:
                     child_idx, parent_idx = fk_pair
                     ref_idx = parent_idx if this_idx == child_idx else child_idx
-                    ref_col, ref_tbl, ref_type, ref_is_pk, _ = linker.index_mapping[ref_idx]
+                    print("this_idx" + str(this_idx) + "my_idx(child_idx):" + str(child_idx) + "ref_idx: " + str(ref_idx-1) + ", " + str(len(linker.index_mapping)))
+                    ref_col, ref_tbl, ref_type, ref_is_pk, _ = linker.index_mapping[ref_idx - 1]
 
                     # 更新当前列的外键信息
                     formatted_linking[table_name][-1]["foreign_key"] = {
@@ -105,14 +111,22 @@ async def async_main():
                 if c['column'] in used:
                     continue
                 used.add(c['column'])
+                if needs_quotes(c['column']):
+                    c['column'] = "\"" + c['column'] + "\""
                 col_defs.append(f"  {c['column']} {c['type']}")
                 if c["is_primary"]:
                     pk_cols.append(c["column"])
                 if c["foreign_key"]:
-                    fk_defs.append(
-                        f"  FOREIGN KEY ({c['column']}) "
-                        f"REFERENCES {c['foreign_key']['table']}({c['foreign_key']['column']})"
-                    )
+                    if needs_quotes(c["foreign_key"]['column']):
+                        fk_defs.append(
+                            f"  FOREIGN KEY ({c['column']}) "
+                            f"REFERENCES {c['foreign_key']['table']}(\"{c['foreign_key']['column']}\")"
+                        )
+                    else:
+                        fk_defs.append(
+                            f"  FOREIGN KEY ({c['column']}) "
+                            f"REFERENCES {c['foreign_key']['table']}({c['foreign_key']['column']})"
+                        )
             if pk_cols:
                 col_defs.append(f"  PRIMARY KEY ({', '.join(pk_cols)})")
             col_defs.extend(fk_defs)

@@ -38,13 +38,13 @@ class SchemaLinker:
             if 0 <= table_idx < len(table_names):
                 col_type = column_types[col_idx] if col_idx < len(column_types) else None
                 is_pk = self.is_primary_key(col_idx, primary_keys)
-                fk_pair = next((pair for pair in foreign_keys if col_idx in pair), None)
+                fk_pairs = [pair for pair in foreign_keys if col_idx == pair[0]]
                 self.index_mapping.append(
                     (column, 
                      table_names[table_idx], 
                      col_type, 
                      is_pk, 
-                     fk_pair)
+                     fk_pairs)
                 )
         all_names = [item[0] for item in self.index_mapping]
         embeddings = self.model.encode(all_names, 
@@ -82,10 +82,10 @@ class SchemaLinker:
             matches = []
             for idx, dist in zip(I[0], D[0]):
                 if idx < len(self.index_mapping):
-                    schema_item, table_name, col_type, is_pk, fk_pair = self.index_mapping[idx]
+                    schema_item, table_name, col_type, is_pk, fk_pairs = self.index_mapping[idx]
                     edit_sim = self._edit_similarity(kw, schema_item)
                     combined_score = self._combine_score(dist, edit_sim)
-                    matches.append((kw, schema_item, table_name, col_type, is_pk, fk_pair, combined_score, idx))
+                    matches.append((kw, schema_item, table_name, col_type, is_pk, fk_pairs, combined_score, idx + 1))
             results.append(sorted(matches, key=lambda x: -x[-2]))  # 按最终得分降序
         return results
 
