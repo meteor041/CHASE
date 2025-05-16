@@ -34,8 +34,8 @@ client = OpenAI(
 # ---------- 可调参数 ----------
 @dataclass
 class Config:
-    model_name: str = r"/home/yangliu26/qwen3-8b"  # 请根据实际模型路径调整
-    input_json: str = r"/home/yangliu26/data/train/schema_linking_result.json"
+    model_name: str = r"/data/XiYanSQL-QwenCoder-32B-2412"  # 请根据实际模型路径调整
+    input_json: str = r"/home/yangliu26/data/schema_linking/schema_linking_result.json"
     output_dir: str = r"/home/yangliu26/CHASE/candidates/vllm/cot_result"
     # 文本生成超参
     max_new_tokens: int = 1024
@@ -43,7 +43,6 @@ class Config:
     temperature: float = 0.7
     enable_thinking: bool = True
     # 性能设置
-    num_gpus: int = 1
     batch_size: int = 8
     use_fp16: bool = True
     device_map = {"" : 0}
@@ -70,6 +69,7 @@ def extract_sql_block(generated_text: str) -> str:
     match = re.search(pattern, generated_text, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
+    logging.critical(f"not match: {generated_text}")
     return generated_text.strip()  # fallback
     
 def call_single_prompt(prompt: str, max_tokens: int = 128) -> Tuple[str, str]:
@@ -80,7 +80,7 @@ def call_single_prompt(prompt: str, max_tokens: int = 128) -> Tuple[str, str]:
             max_tokens=max_tokens,
             temperature=0.7,
         )
-        text = response["choices"][0]["message"]["content"].strip()
+        text = response.choices[0].message.content.strip()
     except Exception as e:
         text = f"[ERROR]: {e}"
 
@@ -96,7 +96,7 @@ def call_single_prompt(prompt: str, max_tokens: int = 128) -> Tuple[str, str]:
 
 def llm_batch_call_vllm(
     prompts: List[str],
-    max_new_tokens_num=128,
+    max_new_tokens_num=8192,
     do_sample: bool = True, 
     temperature: float = 0.6,
     top_p: float = 0.95,
@@ -123,11 +123,11 @@ def decompose_question(batch, prompt_list, init_pos: int):
     """将问题分解为多个子问题"""
     prompts = [DECOMPOSE_TEMPLATE.format(
         question=item.get("question"),
-        db_schema=item.get("schema_linking")
+        db_schema=item.get("DDL")
         ) 
                for item in batch]
     
-    thinking_texts, texts = llm_batch_call_vllm(prompts, None)
+    thinking_texts, texts = llm_batch_call_vllm(prompts, 8192)
     # 解析子问题
     sub_questions = []
     for text in texts:
@@ -167,9 +167,9 @@ def generate_partial_sql(batch, sub_questions_list, prompt_list, init_pos) -> st
                 sub_question=sub_question,
                 evidence=item.get("evidence"),
                 history=history,
-                db_schema=item.get("schema_linking")
+                db_schema=item.get("DDL")
             ) for sub_question, item, history in zip(current_sub_questions, batch, histories)]
-        _, ret = llm_batch_call_vllm(prompts, None)
+        _, ret = llm_batch_call_vllm(prompts, 8192)
         for j, sql in enumerate(ret):
             if i < len(sub_questions_list[j]):
                 partial_sqls[j].append(extract_sql_block(sql))
@@ -189,13 +189,13 @@ def assemble_sql(batch, sub_questions_list: List[List[str]],
     
     prompts = [ASSEMBLE_TEMPLATE.format(
             question=item.get("question"),
-            db_schema=item.get("schema_linking"),
+            db_schema=item.get("DDL"),
             sub_questions_and_sqls=sub_qs_and_sql
         ) for item, sub_qs_and_sql in zip(batch, sub_qs_and_sqls)]
     
     for i, k in enumerate(range(init_pos, init_pos + len(batch))):
         prompt_list[k].append(prompts[i])
-    _, rets = llm_batch_call_vllm(prompts, None)
+    _, rets = llm_batch_call_vllm(prompts, 8192)
     return [extract_sql_block(ret) for ret in rets]
     
 def divide_and_conquer_sql(batch, prompt_list, init_pos: int):
@@ -226,6 +226,7 @@ def process_item(data: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "db_id": item["db_id"],
                 "question": item["question"],
                 "db_schema": item["schema_linking"],
+                "DDL": item["DDL"],
                 "sql": final_sqls[j],
                 "subquestion": sub_questions_list[j],
                 "partial_sqls": partial_sqls_list[j],
@@ -239,10 +240,9 @@ def process_item(data: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def process_data_parallel():
     os.makedirs(CFG.output_dir, exist_ok=True)
-    
     with open(CFG.input_json, 'r', encoding='utf-8') as f:
         data = json.load(f)
-    data = data[:10]
+    # data = data[:40]
     process_item(data)
         
 if __name__ == "__main__":
