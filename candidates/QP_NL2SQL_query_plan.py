@@ -26,7 +26,7 @@ import time
 class Config:
     model_name: str = r"/home/yangliu26/qwen3-8b"
     prompt_file: str = r"/home/yangliu26/CHASE/template/QP_prompt.txt"
-    input_json: str = r"/home/yangliu26/data/train/schema_linking_result.json"
+    input_json: str = r"/home/yangliu26/data/schema_linking/schema_linking_result.json"
     output_dir: str = "qp_results"
     # 文本生成超参
     max_new_tokens: int = 512
@@ -35,7 +35,7 @@ class Config:
     top_p: float = None
     top_k: int = None
     # 性能设置
-    batch_size: int = 4      # 根据显存灵活调整
+    batch_size: int = 4 
     use_fp16: bool = True        # 或用 8bit/4bit 量化
     load_in_8bit: bool = False
     device_map= {"" : 0}

@@ -28,7 +28,7 @@ from transformers import (
 @dataclass
 class Config:
     model_name: str = r"/home/yangliu26/qwen3-8b"  # 请根据实际模型路径调整
-    input_json: str = r"/home/yangliu26/data/train/schema_linking_result.json"
+    input_json: str = r"/home/yangliu26/data/schema_linking/schema_linking_result.json"
     output_dir: str = r"/home/yangliu26/CHASE/candidates/cot_result"
     # 文本生成超参
     max_new_tokens: int = 1024
@@ -36,7 +36,7 @@ class Config:
     temperature: float = 0.7
     enable_thinking: bool = True
     # 性能设置
-    num_gpus: int = 1
+    num_gpus: int = 4
     batch_size: int = 8
     use_fp16: bool = True
     device_map = {"" : 0}
@@ -57,7 +57,7 @@ def load_model_and_tokenizer(cfg: Config):
         padding_side="left",
         local_files_only=True,
     )
-    print(tokenizer.tokenize("<think> This is reasoning. </think>"))
+    # print(tokenizer.tokenize("<think> This is reasoning. </think>"))
     model = AutoModelForCausalLM.from_pretrained(
         cfg.model_name,
         trust_remote_code=True,
@@ -214,11 +214,11 @@ def decompose_question(batch, generator, prompt_list, init_pos: int):
     """将问题分解为多个子问题"""
     prompts = [DECOMPOSE_TEMPLATE.format(
         question=item.get("question"),
-        db_schema=item.get("schema_linking")
+        db_schema=item.get("DDL")
         ) 
                for item in batch]
     
-    thinking_texts, texts = llm_batch_call(generator[0], generator[1], prompts, None)
+    thinking_texts, texts = llm_batch_call(generator[0], generator[1], prompts, 4096)
     # 解析子问题
     sub_questions = []
     for text in texts:
@@ -259,9 +259,9 @@ def generate_partial_sql(batch, sub_questions_list, generator, prompt_list, init
                 sub_question=sub_question,
                 evidence=item.get("evidence"),
                 history=history,
-                db_schema=item.get("schema_linking")
+                db_schema=item.get("DDL")
             ) for sub_question, item, history in zip(current_sub_questions, batch, histories)]
-        _, ret = llm_batch_call(generator[0], generator[1], prompts, None)
+        _, ret = llm_batch_call(generator[0], generator[1], prompts, 4096)
         for j, sql in enumerate(ret):
             if i < len(sub_questions_list[j]):
                 partial_sqls[j].append(extract_sql_block(sql))
@@ -281,13 +281,13 @@ def assemble_sql(batch, sub_questions_list: List[List[str]],
     
     prompts = [ASSEMBLE_TEMPLATE.format(
             question=item.get("question"),
-            db_schema=item.get("schema_linking"),
+            db_schema=item.get("DDL"),
             sub_questions_and_sqls=sub_qs_and_sql
         ) for item, sub_qs_and_sql in zip(batch, sub_qs_and_sqls)]
     
     for i, k in enumerate(range(init_pos, init_pos + len(batch))):
         prompt_list[k].append(prompts[i])
-    _, rets = llm_batch_call(generator[0], generator[1], prompts, None)
+    _, rets = llm_batch_call(generator[0], generator[1], prompts, 4096)
     return [extract_sql_block(ret) for ret in rets]
 
 def optimize_sql(sql: str, generator) -> str:
