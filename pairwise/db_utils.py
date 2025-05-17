@@ -38,7 +38,7 @@ def build_db_path(db_id: str)-> str:
         raise ValueError("db_id cannot contain path separators")
     
     # 使用Path对象进行安全的路径拼接
-    root_dir = Path('/home/yangliu26/data/train/train_databases')
+    root_dir = Path('/home/yangliu26/data/dev/dev_databases')
     db_dir = root_dir / db_id
     db_file = db_dir / f"{db_id}.sqlite"
     
@@ -53,8 +53,8 @@ def execute_sql(db_path: str, sql: str, fetch: Union[str, int] = "all", timeout:
             self.exception = None
 
         def run(self):
+            conn = None   
             try:
-                # with sqlite3.connect(db_path, timeout=60) as conn:
                 conn = sqlite3.connect(db_path, timeout=timeout, check_same_thread=False)
                 conn.execute("PRAGMA journal_mode=WAL;")
                 conn.execute("PRAGMA synchronous=NORMAL;")
@@ -152,64 +152,21 @@ def subprocess_sql_executor(db_path: str, sql: str, timeout: int = 60):
         try:
             result = queue.get_nowait()
         except Empty:
-            raise False, Exception("No data returned from the process.")
+            return False, Exception("No data returned from the process.")
         
         if isinstance(result, Exception):
-            raise False, result
+            return False, result
         return True, result
-
-# def execute_sql(db_path: str, sql: str, fetch: Union[str, int] = "all") -> Any:
-#     """
-#     Executes an SQL query on a database and fetches results.
-    
-#     Args:
-#         db_path (str): The path to the database file.
-#         sql (str): The SQL query to execute.
-#         fetch (Union[str, int]): How to fetch the results. Options are "all", "one", "random", or an integer.
-        
-#     Returns:
-#         Any: The fetched results based on the fetch argument.
-    
-#     Raises:
-#         Exception: If an error occurs during SQL execution.
-#     """
-#     if fetch == "limited":
-#         original_db_path = db_path
-#         base, ext = os.path.splitext(db_path)
-#         db_path = f"{base}_small{ext}"
-#         if not os.path.exists(db_path):
-#             print("Creating the smaller db_path")
-#             create_smaller_db(original_db_path)
-#     try:
-#         with sqlite3.connect(db_path, timeout=60) as conn:
-#             cursor = conn.cursor()
-#             if fetch == "all":
-#                 return cursor.execute(sql).fetchall()
-#             elif fetch == "one":
-#                 return cursor.execute(sql).fetchone()
-#             elif fetch == "random":
-#                 samples = cursor.execute(sql).fetchmany(10)
-#                 return random.choice(samples) if samples else []
-#             elif isinstance(fetch, int):
-#                 return cursor.execute(sql).fetchmany(fetch)
-#             elif fetch == "limited":
-#                 return  cursor.execute(sql).fetchall()   
-#             else:
-#                 raise ValueError("Invalid fetch argument. Must be 'all', 'one', 'random', 'limited', or an integer.")
-#     except Exception as e:
-#         logging.error(f"Error in execute_sql: {e}\nSQL: {sql}, fetch: {fetch}")
-#         raise e
 
 def _compare_sqls_outcomes(db_path: str, predicted_sql: str, ground_truth_sql: str) -> int:
     """
     Compares the outcomes of two SQL queries to check for equivalence.
     """
     try:
-        ok1, pred_rows = execute_sql(db_path, predicted_sql)
-        ok2, gt_rows   = execute_sql(db_path, ground_truth_sql)
+        pred_rows = execute_sql(db_path, predicted_sql)
+        gt_rows   = execute_sql(db_path, ground_truth_sql)
 
-        if not ok1 or not ok2:
-            # 如果执行出错或超时，都视为不等
+        if isinstance(pred_rows, Exception) or isinstance(gt_rows, Exception):
             return 0
 
         # 把每一行转换成 tuple，以便能放进 set

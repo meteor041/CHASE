@@ -77,7 +77,7 @@ def load_jsonl_or_json(path: Path) -> List[Dict[str, Any]]:
         ch = f.read(1)
         f.seek(0)
         if ch == "[":
-            return json.load(f)
+            return json.load(f)[:100]
         return [json.loads(line) for line in f]
 
 # ---------------------------------------------------------------------------

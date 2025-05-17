@@ -1,37 +1,23 @@
-from typing import List, Union
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
+from typing import List
 import asyncio
 import json
 import re
 from tqdm.asyncio import tqdm
+from openai import OpenAI
 
+with open(r"/home/yangliu26/CHASE/template/schema_linking_template.txt", "r") as f:
+    PROMPT_TEMPLATE = f.read()
+    
 class KeywordExtractor:
     def __init__(self, model_path: str):
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            model_path,
-            trust_remote_code=True,
-            local_files_only=True,
-            enable_thinking=False,
+        self.client = OpenAI(
+            api_key="EMPTY",
+            base_url="http://localhost:8000/v1"
         )
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            torch_dtype=torch.float16,
-            device_map="auto",
-            trust_remote_code=True,
-            local_files_only=True
-        )
-        # 保险起见，再显式关一次 generation_config
-        self.model.generation_config.enable_thinking = False  
-        
-        self.model.eval()
-        self.model.config.pad_token_id = self.tokenizer.pad_token_id
+        self.model_name = model_path
 
-    def build_prompt(self, question: str, prompt_template: str = None) -> str:
-        if prompt_template is None:
-            with open(r"/home/yangliu26/CHASE/template/schema_linking_template.txt", "r") as f:
-                prompt_template = f.read()
-        return prompt_template.format(question=question)
+    def build_prompt(self, question: str) -> str:
+        return PROMPT_TEMPLATE.format(question=question)
 
     def extract_json_block(self, text: str) -> dict | None:
         """
@@ -47,7 +33,6 @@ class KeywordExtractor:
                 return None
         return None
 
-    
     def clean_output(self, result: str) -> str:
         # 去除包裹的 ```json ``` 和其他markdown
         cleaned = re.sub(r"^```(?:json)?\s*([\s\S]*?)\s*```$", r"\1", result.strip(), flags=re.DOTALL)
@@ -62,6 +47,8 @@ class KeywordExtractor:
     def parse_keywords(self, cleaned: str) -> List[str]:
         try:
             parsed = self.extract_json_block(cleaned)
+            if not parsed:
+                return []
             if isinstance(parsed, list):
                 parsed = parsed[0]
             return parsed.get("keywords", [])
@@ -70,18 +57,11 @@ class KeywordExtractor:
             print(f"[Error Info] {e}")
             return []
 
-    async def extract_keywords(self, question: str, prompt_template: str = None, timeout_sec: int = 20) -> List[str]:
-        prompt = self.build_prompt(question, prompt_template)
-        # inputs = self.tokenizer(
-        #     prompt,
-        #     max_length=2048,
-        #     truncation=True,
-        #     return_tensors="pt"
-        # ).to(self.model.device)
+    async def extract_keywords(self, question: str, timeout_sec: int = 20) -> List[str]:
+        prompt = self.build_prompt(question)
 
         try:
             output = await asyncio.wait_for(self._generate(prompt), timeout=timeout_sec)
-            # print(output)
             cleaned = self.clean_output(output)
             keywords = self.parse_keywords(cleaned)
             return keywords
@@ -89,51 +69,27 @@ class KeywordExtractor:
             print("[Timeout Warning] Response generation timeout, skipping this question.")
             return []
 
-    async def _generate(self, prompt) -> str:
-        messages = [
-            {
-                "role": "user", "content": prompt
-            }
-        ]
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=False # 一定要关闭深度思考
+    async def _generate(self, prompt: str) -> str:
+        response = await asyncio.to_thread(          # 非阻塞包装
+            self.client.chat.completions.create,
+            model=self.model_name,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=128
         )
-        model_inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
-        
-        # conduct text completion
-        generated_ids = self.model.generate(
-            **model_inputs,
-            max_new_tokens=128
-        )
-        output_ids = generated_ids[0][len(model_inputs.input_ids[0]):].tolist() 
-        
-        # parsing thinking content
-        try:
-            # rindex finding 151668 (</think>)
-            index = len(output_ids) - output_ids[::-1].index(151668)
-        except ValueError:
-            index = 0
-        
-        # thinking_content = self.tokenizer.decode(output_ids[:index], skip_special_tokens=True).strip("\n")
-        content = self.tokenizer.decode(output_ids[index:], skip_special_tokens=True).strip("\n")
-        
-        # print("thinking content:", thinking_content)
-        # print("content:", content)
+        text =  response.choices[0].message.content.strip()
+        if "</think>" in text:
+            think, content = text.split("</think>", 1)
+            think = think.replace("<think>", "").strip()
+            content = content.strip()
+        else:
+            think = ""
+            content = text.strip()
     
-        return content 
-
-    # async def batch_extract(self, questions: List[str], prompt_template: str = None) -> List[List[str]]:
-    #     tasks = [self.extract_keywords(q, prompt_template) for q in questions]
-    #     results = await asyncio.gather(*tasks)
-    #     return results
+        return content
     
 
     async def batch_extract(self, questions: List[str], 
-                            prompt_template: str = None, 
-                            max_concurrency: int = 12) -> List[List[str]]:
+                            max_concurrency: int = 64) -> List[List[str]]:
         """
         并发抽取关键词，保持返回顺序，并用 tqdm 显示进度
         """
@@ -150,7 +106,7 @@ class KeywordExtractor:
     
         # 先把每个问题的提取任务封装好
         tasks = [
-            asyncio.create_task(_wrap(i, self.extract_keywords(q, prompt_template)))
+            asyncio.create_task(_wrap(i, self.extract_keywords(q)))
             for i, q in enumerate(questions)
         ]
     

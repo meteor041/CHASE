@@ -7,12 +7,12 @@ import os
 import asyncio
 
 # 训练集
-TRAIN_JSON_PATH = r"/home/yangliu26/data/train/train.json"
-SCHEMA_JSON_PATH = r"/home/yangliu26/data/train/train_tables.json"
+# TRAIN_JSON_PATH = r"/home/yangliu26/data/train/train.json"
+# SCHEMA_JSON_PATH = r"/home/yangliu26/data/train/train_tables.json"
 # 验证集
-# TRAIN_JSON_PATH = r"/home/yangliu26/data/dev/dev.json"
-# SCHEMA_JSON_PATH = r"/home/yangliu26/data/dev/dev_tables.json"
-MODEL_PATH = r"/home/yangliu26/qwen3-8b"
+TRAIN_JSON_PATH = r"/home/yangliu26/data/dev/dev.json"
+SCHEMA_JSON_PATH = r"/home/yangliu26/data/dev/dev_tables.json"
+MODEL_PATH = r"/data/XiYanSQL-QwenCoder-32B-2412"
 
 # 加载schema信息
 def get_schema_map(schema_json_path: str) -> Dict[str, Any]:
@@ -150,7 +150,7 @@ async def async_main():
             print(f"已处理 {idx}/{len(data)}，中间结果写入 {flush_path}")
         
     # 输出结果到当前文件目录下的schema_linking_result.json
-    out_path = os.path.join(os.path.dirname(__file__), "results/schema_linking_result.json")
+    out_path = os.path.join(os.path.dirname(__file__), "results/dev_schema_linking_result.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
     print(f"Schema linking结果已保存到: {out_path}")
