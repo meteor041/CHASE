@@ -123,7 +123,7 @@ def evaluate_with_baseline(
         gold_sql = item.get("sql") or item.get("SQL") or item.get("best_sql") or ""
 
         # baseline
-        base_sql = baseline[idx].get("sql", baseline[idx].get("SQL")) or ""
+        base_sql = baseline[idx].get("sql") or baseline[idx].get("SQL") or baseline[idx].get("best_sql") or ""
         base_info = _compare_pair(db_id, gold_sql, base_sql, timeout)
         base_ok = base_info["correct"]
         # logging.info(f"{idx}: base sql is {base_ok}")
