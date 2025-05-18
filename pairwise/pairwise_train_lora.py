@@ -38,8 +38,8 @@ def compute_metrics(eval_pred):
 def main():
     # 设置路径和参数
     data_path = "/home/yangliu26/CHASE/utils/pairwise_datas.json"
-    model_name = "/home/yangliu26/qwen3-8b"
-    output_dir = "./pairwise_selector_model/qwen3-8b-lora/"
+    model_name = "/data/Qwen2.5-32B-Instruct"
+    output_dir = "./pairwise_selector_model/Qwen2.5-32B-Instruct-lora/"
     
     # LoRA配置
     lora_config = LoraConfig(
