@@ -250,7 +250,7 @@ def process_data():
     # 加载数据
     with open(CFG.input_json, 'r', encoding='utf-8') as f:
         data = json.load(f)
-    data = data[:100]
+    data = data
     logging.info(f"加载数据完成,读取并选择{len(data)}个数据")
     data_chunks = list(batched(data, CFG.batch_size))
     results = []

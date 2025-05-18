@@ -214,7 +214,7 @@ def run_multi_gpu():
     os.makedirs(CFG.output_dir, exist_ok=True)
     with open(CFG.input_json, "r", encoding="utf-8") as f:
         data = json.load(f)
-    data = data[:100]
+    # data = data[:100]
     worker_run(data)
     
     logging.info("程序执行完毕")
