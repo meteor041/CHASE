@@ -5,6 +5,7 @@ from pathlib import Path
 from collections import defaultdict
 from db_utils import subprocess_sql_executor, build_db_path
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import torch
 import logging
 from tqdm import tqdm
@@ -14,14 +15,20 @@ from transformers import (
     pipeline,
     BitsAndBytesConfig,
 )
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="EMPTY",  # 对于某些本地服务，API密钥可以是任意非空字符串
+    base_url="http://localhost:8000/v1" # 指向你的 vLLM 服务
+)
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s - %(message)s")
 
 # ---------- 可调参数 ----------
 @dataclass
 class Config:
-    model_name: str = r"/home/yangliu26/qwen3-8b"
     # model_name: str = r"/home/yangliu26/CHASE/pairwise/pairwise_selector_model/qwen3-8b-lora"
+    model_name: str = r"/data/XiYanSQL-QwenCoder-32B-2412"
     output_file: str = r'/home/yangliu26/CHASE/pairwise/result/cmp_results.json'
     # 文本生成超参
     max_new_tokens: int = 1024
@@ -35,65 +42,65 @@ class Config:
 # 配置实例
 CFG = Config()
 
-def load_model_and_tokenizer(cfg: Config):
-    """加载模型和分词器"""
-    # 量化配置
-    quant_cfg = None
-    if not cfg.use_fp16:
-        quant_cfg = BitsAndBytesConfig(load_in_8bit=True)
+# def load_model_and_tokenizer(cfg: Config):
+#     """加载模型和分词器"""
+#     # 量化配置
+#     quant_cfg = None
+#     if not cfg.use_fp16:
+#         quant_cfg = BitsAndBytesConfig(load_in_8bit=True)
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        cfg.model_name,
-        trust_remote_code=True,
-        padding_side="left",
-        local_files_only=True,
-    )
-    model = AutoModelForCausalLM.from_pretrained(
-        cfg.model_name,
-        trust_remote_code=True,
-        torch_dtype=torch.float16 if cfg.use_fp16 else torch.float32,
-        quantization_config=quant_cfg,
-        device_map=cfg.device_map,
-    )
-    logging.info(f"Loaded tokenizer & model from {cfg.model_name}, fp16={cfg.use_fp16}")
-    return tokenizer, model
+#     tokenizer = AutoTokenizer.from_pretrained(
+#         cfg.model_name,
+#         trust_remote_code=True,
+#         padding_side="left",
+#         local_files_only=True,
+#     )
+#     model = AutoModelForCausalLM.from_pretrained(
+#         cfg.model_name,
+#         trust_remote_code=True,
+#         torch_dtype=torch.float16 if cfg.use_fp16 else torch.float32,
+#         quantization_config=quant_cfg,
+#         device_map=cfg.device_map,
+#     )
+#     logging.info(f"Loaded tokenizer & model from {cfg.model_name}, fp16={cfg.use_fp16}")
+#     return tokenizer, model
 
-def llm_call(model, tokenizer, prompt: str, max_new_tokens_num=128)-> str:
-    print('-------------------\n' + prompt + '\n--------------------\n')
-    messages = [
-        {
-            "role": "user", "content": prompt
-        }
-    ]
-    text = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-        enable_thinking=False # 一定要关闭深度思考
-    )
-    model_inputs = tokenizer(text, return_tensors="pt").to(model.device)
+# def llm_call(model, tokenizer, prompt: str, max_new_tokens_num=128)-> str:
+#     print('-------------------\n' + prompt + '\n--------------------\n')
+#     messages = [
+#         {
+#             "role": "user", "content": prompt
+#         }
+#     ]
+#     text = tokenizer.apply_chat_template(
+#         messages,
+#         tokenize=False,
+#         add_generation_prompt=True,
+#         enable_thinking=False # 一定要关闭深度思考
+#     )
+#     model_inputs = tokenizer(text, return_tensors="pt").to(model.device)
     
-    # conduct text completion
-    generated_ids = model.generate(
-        **model_inputs,
-        max_new_tokens=max_new_tokens_num
-    )
-    output_ids = generated_ids[0][len(model_inputs.input_ids[0]):].tolist() 
+#     # conduct text completion
+#     generated_ids = model.generate(
+#         **model_inputs,
+#         max_new_tokens=max_new_tokens_num
+#     )
+#     output_ids = generated_ids[0][len(model_inputs.input_ids[0]):].tolist() 
     
-    # parsing thinking content
-    try:
-        # rindex finding 151668 (</think>)
-        index = len(output_ids) - output_ids[::-1].index(151668)
-    except ValueError:
-        index = 0
+#     # parsing thinking content
+#     try:
+#         # rindex finding 151668 (</think>)
+#         index = len(output_ids) - output_ids[::-1].index(151668)
+#     except ValueError:
+#         index = 0
     
-    thinking_content = tokenizer.decode(output_ids[:index], skip_special_tokens=True).strip("\n")
-    content = tokenizer.decode(output_ids[index:], skip_special_tokens=True).strip("\n")
+#     thinking_content = tokenizer.decode(output_ids[:index], skip_special_tokens=True).strip("\n")
+#     content = tokenizer.decode(output_ids[index:], skip_special_tokens=True).strip("\n")
     
-    # print("thinking content:", thinking_content)
-    # print("content:", content)
+#     # print("thinking content:", thinking_content)
+#     # print("content:", content)
 
-    return content
+#     return content
     
 def load_prompt_template() -> str:
     """加载SQL比较的提示模板"""
@@ -115,72 +122,118 @@ def prepare_comparison_prompt(question:str, evidence: str, schema: str, sql1: st
         }
     )
 
-def llm_batch_call(model, tokenizer, prompts: List[str],
-             max_new_tokens_num=128,
-             do_sample: bool = True, 
-             temperature: float = 0.6,
-             top_p: float = 0.95,
-             top_k: int = 20)-> str:
-    messages = [
-        {
-            "role": "user", "content": prompt
-        }
-        for prompt in prompts
-    ]
-    kwargs = dict(tokenize=False, add_generation_prompt=True, enable_thinking=False)
-    # if "enable_thinking" in tokenizer.apply_chat_template.__code__.co_varnames:
-    #     kwargs["enable_thinking"] = False
-    text_batch = [tokenizer.apply_chat_template([m], **kwargs) for m in messages]
-    model_inputs = tokenizer(
-        text_batch, 
-        padding=True, 
-        truncation=True,         # ✅ 若超过模型 max length 则截断
-        return_tensors="pt"
-    ).to(model.device)
-    
-    # conduct text completion
-    outputs = model.generate(
-        **model_inputs,
-        max_new_tokens=max_new_tokens_num,
-        do_sample=do_sample,
-        temperature=temperature,
-        top_p=top_p,
-        top_k=top_k
-    )
-    # 解码每个生成结果（去掉prompt部分）
-    # decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-    # prompts_decoded = tokenizer.batch_decode(model_inputs["input_ids"], skip_special_tokens=True)
-    # completions = [full[len(prompt):].strip() for full, prompt in zip(decoded, prompts_decoded)]
-
-    # return completions
-    output_ids = [
-        output[len(input_ids):].tolist()
-        for output, input_ids in zip(outputs, model_inputs.input_ids)
-    ]
-    
-    # parsing thinking content
+def call_single_prompt(prompt: str, max_tokens: int = 128) -> Tuple[str, str]:
     try:
-        # rindex finding 151668 (</think>)
-        indexes = [
-            len(output_id) - output_ids[::-1].index(151668) 
-            for output_id in output_ids
-        ]
-    except ValueError:
-        indexes = [0 for _ in output_ids]
-    
-    contents = [
-        tokenizer.decode(output_id[index:], skip_special_tokens=True).strip("\n") 
-        for index, output_id in zip(indexes, output_ids)
-    ]
+        response = client.chat.completions.create(
+            model=CFG.model_name,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+            temperature=0.7,
+        )
+        text = response.choices[0].message.content.strip()
+    except Exception as e:
+        text = f"[ERROR]: {e}"
 
-    return contents 
+    if "</think>" in text:
+        think, content = text.split("</think>", 1)
+        think = think.replace("<think>", "").strip()
+        content = content.strip()
+    else:
+        think = ""
+        content = text.strip()
+
+    return think, content
+
+def llm_batch_call_vllm(
+    prompts: List[str],
+    max_new_tokens_num=8192,
+    do_sample: bool = True, 
+    temperature: float = 0.6,
+    top_p: float = 0.95,
+    top_k: int = 20
+) -> Tuple[List[str], List[str]]:
+    """并发提交 prompt 到 vLLM 的 OpenAI 接口"""
+    thinking_results, content_results = [None] * len(prompts), [None] * len(prompts)
+
+    with ThreadPoolExecutor(max_workers=CFG.batch_size) as executor:
+        future_to_index = {
+            executor.submit(call_single_prompt, prompt, max_new_tokens_num): i
+            for i, prompt in enumerate(prompts)
+        }
+        for future in as_completed(future_to_index):
+            i = future_to_index[future]
+            think, content = future.result()
+            thinking_results[i] = think
+            content_results[i] = content
+
+    return thinking_results, content_results
     
-def compare_sql_pairs(tokenizer, model, template, question, evidence, schema, kwargs) -> int:
+# def llm_batch_call(model, tokenizer, prompts: List[str],
+#              max_new_tokens_num=128,
+#              do_sample: bool = True, 
+#              temperature: float = 0.6,
+#              top_p: float = 0.95,
+#              top_k: int = 20)-> str:
+#     messages = [
+#         {
+#             "role": "user", "content": prompt
+#         }
+#         for prompt in prompts
+#     ]
+#     kwargs = dict(tokenize=False, add_generation_prompt=True, enable_thinking=False)
+#     # if "enable_thinking" in tokenizer.apply_chat_template.__code__.co_varnames:
+#     #     kwargs["enable_thinking"] = False
+#     text_batch = [tokenizer.apply_chat_template([m], **kwargs) for m in messages]
+#     model_inputs = tokenizer(
+#         text_batch, 
+#         padding=True, 
+#         truncation=True,         # ✅ 若超过模型 max length 则截断
+#         return_tensors="pt"
+#     ).to(model.device)
+    
+#     # conduct text completion
+#     outputs = model.generate(
+#         **model_inputs,
+#         max_new_tokens=max_new_tokens_num,
+#         do_sample=do_sample,
+#         temperature=temperature,
+#         top_p=top_p,
+#         top_k=top_k
+#     )
+#     # 解码每个生成结果（去掉prompt部分）
+#     # decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+#     # prompts_decoded = tokenizer.batch_decode(model_inputs["input_ids"], skip_special_tokens=True)
+#     # completions = [full[len(prompt):].strip() for full, prompt in zip(decoded, prompts_decoded)]
+
+#     # return completions
+#     output_ids = [
+#         output[len(input_ids):].tolist()
+#         for output, input_ids in zip(outputs, model_inputs.input_ids)
+#     ]
+    
+#     # parsing thinking content
+#     try:
+#         # rindex finding 151668 (</think>)
+#         indexes = [
+#             len(output_id) - output_ids[::-1].index(151668) 
+#             for output_id in output_ids
+#         ]
+#     except ValueError:
+#         indexes = [0 for _ in output_ids]
+    
+#     contents = [
+#         tokenizer.decode(output_id[index:], skip_special_tokens=True).strip("\n") 
+#         for index, output_id in zip(indexes, output_ids)
+#     ]
+
+#     return contents 
+    
+def compare_sql_pairs(template, question, evidence, schema, kwargs) -> int:
     """比较两个SQL语句，返回较好的SQL的索引（0或1）"""
     prompts = [prepare_comparison_prompt(question, evidence, schema, kwarg[0], kwarg[1], kwarg[2], kwarg[3], template) for kwarg in kwargs]
     
     # 使用模型进行预测
-    responses = llm_batch_call(model, tokenizer, prompts, 128)
+    _, responses = llm_batch_call_vllm(prompts, 128)
     # 确保响应是0或1
     results = [response.strip() for response in responses]
     for result in results:
@@ -217,7 +270,7 @@ def compare_sql_pairs(tokenizer, model, template, question, evidence, schema, kw
 #     # 转换为字符串返回
 #     return str(db_file.absolute())
     
-def tournament_comparison(tokenizer, model, sql_list) -> Tuple[str, List[int]]:
+def tournament_comparison(sql_list) -> Tuple[str, List[int]]:
     """使用锦标赛方式比较所有SQL语句"""
     sqls = sql_list.get('sql_list')
     db_id = sql_list.get('db_id')
@@ -231,8 +284,16 @@ def tournament_comparison(tokenizer, model, sql_list) -> Tuple[str, List[int]]:
     logging.info(f"Starting tournament for db_id={db_id}, {n} candidates")
     db_path = build_db_path(db_id)
     for i, sql in enumerate(sqls):
+        try:
+            res, raw_result = subprocess_sql_executor(db_path, sql)
+        except TimeoutError:
+            logging.warning(f"SQL {i} 执行超时，内容如下：\n{sql}")
+            raw_result = "[TIMEOUT]"
+        except Exception as e:
+            logging.warning(f"SQL {i} 执行失败: {e}，内容如下：\n{sql}")
+            raw_result = "[ERROR]"
         # db_path = build_path
-        res, raw_result = subprocess_sql_executor(db_path, sql)
+        # res, raw_result = subprocess_sql_executor(db_path, sql)
         # 对结果进行截断（仅限字符串）
         if isinstance(raw_result, str) and len(raw_result) > 100:
             raw_result = raw_result[:100] + '...'
@@ -248,7 +309,7 @@ def tournament_comparison(tokenizer, model, sql_list) -> Tuple[str, List[int]]:
         for j in range(i + 1, n):
             kwargs.append([sqls[i], sqls[j], results[i], results[j]])
             
-    prompts, winners = compare_sql_pairs(tokenizer, model, template, question, evidence, schema, kwargs)
+    prompts, winners = compare_sql_pairs(template, question, evidence, schema, kwargs)
     cnt = 0
     for i in range(n):
         for j in range(i+1, n):
@@ -265,7 +326,7 @@ def tournament_comparison(tokenizer, model, sql_list) -> Tuple[str, List[int]]:
     best_idx = scores.index(max(scores))
     return sqls[best_idx], scores, prompts
 
-def process_json_files(input_files: List[str], tokenizer, model, output_file: str):
+def process_json_files(input_files: List[str], output_file: str):
     """处理多个JSON文件中的SQL语句"""
     all_results = []
     sql_lists = defaultdict(dict)
@@ -285,7 +346,7 @@ def process_json_files(input_files: List[str], tokenizer, model, output_file: st
 
     for i, sql_list in enumerate(tqdm(sql_lists, desc="Comparing SQL sets")):
         logging.info(f"[{i+1}/{len(sql_lists)}] Comparing {len(sql_list['sql_list'])} SQLs for question: {sql_list.get('question')!r}")
-        best_sql, scores, prompts = tournament_comparison(tokenizer, model, sql_list)
+        best_sql, scores, prompts = tournament_comparison(sql_list)
         # 记录结果
         result = {
             'question': sql_list.get('question', ''),
@@ -305,17 +366,16 @@ def process_json_files(input_files: List[str], tokenizer, model, output_file: st
 
 def main():
     logging.info(f"Starting comparison script with config: {CFG}")
-    tokenizer, model = load_model_and_tokenizer(CFG)  
     
     input_files = [
-        '/home/yangliu26/data/train/schema_linking_result.json',
-        '/home/yangliu26/data/candidates/COT_results.json',
-        '/home/yangliu26/data/candidates/qp_result_merged.json',
-        '/home/yangliu26/data/candidates/os_results.json'
+        '/home/yangliu26/data/schema_linking/dev_schema_linking_result.json',
+        '/home/yangliu26/CHASE/candidates2/result/cot_result/dev_result.json',
+        '/home/yangliu26/CHASE/candidates2/result/qp_result/dev_result.json',
+        '/home/yangliu26/CHASE/candidates2/result/os_result/dev_os_results.json'
     ]
     
     
-    results = process_json_files(input_files, tokenizer, model, CFG.output_file)
+    results = process_json_files(input_files, CFG.output_file)
     print(f'处理完成，结果已保存到：{CFG.output_file}')
 
 if __name__ == '__main__':
