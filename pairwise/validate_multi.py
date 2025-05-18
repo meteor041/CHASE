@@ -77,7 +77,7 @@ def load_jsonl_or_json(path: Path) -> List[Dict[str, Any]]:
         ch = f.read(1)
         f.seek(0)
         if ch == "[":
-            return json.load(f)[:100]
+            return json.load(f)
         return [json.loads(line) for line in f]
 
 # ---------------------------------------------------------------------------
@@ -120,7 +120,7 @@ def evaluate_with_baseline(
     def process(idx: int) -> Tuple[int, Dict[str, Any], bool, List[bool], List[bool], str]:
         item = gold[idx]
         db_id = item.get("db_id")
-        gold_sql = item.get("sql", item.get("SQL")) or ""
+        gold_sql = item.get("sql") or item.get("SQL") or item.get("best_sql") or ""
 
         # baseline
         base_sql = baseline[idx].get("sql", baseline[idx].get("SQL")) or ""
