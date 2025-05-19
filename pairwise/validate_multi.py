@@ -140,7 +140,7 @@ def evaluate_with_baseline(
         improves: List[bool] = []
         # each test
         for k, name in enumerate(test_names):
-            pred_sql = test_sets[k][idx].get("sql", test_sets[k][idx].get("SQL")) or ""
+            pred_sql = test_sets[k][idx].get("sql") or test_sets[k][idx].get("SQL") or test_sets[k][idx].get("best_sql") or ""
             info = _compare_pair(db_id, gold_sql, pred_sql, timeout)
             ok = info["correct"]
             # logging.info(f"pred_sql-{idx}-{k} is {ok}")
