@@ -1,9 +1,10 @@
+import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 from datasets import load_dataset, Dataset
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
 from peft import LoraConfig, get_peft_model, TaskType, PeftModel
 import torch
 import json
-import os
 # import evaluate
 import numpy as np
 
@@ -64,7 +65,8 @@ def main():
         model_name, 
         num_labels=2,
         trust_remote_code=True,
-        torch_dtype=torch.bfloat16
+        torch_dtype=torch.bfloat16,
+        device_map="auto"
     )
     
     # 应用LoRA配置
@@ -99,8 +101,8 @@ def main():
         output_dir=output_dir,
         eval_strategy="epoch",
         save_strategy="epoch",
-        per_device_train_batch_size=4,  # 使用LoRA可以增加批量大小
-        per_device_eval_batch_size=4,
+        per_device_train_batch_size=1,  # 使用LoRA可以增加批量大小
+        per_device_eval_batch_size=1,
         num_train_epochs=5,
         bf16=True,
         logging_dir="./logs",
@@ -111,8 +113,9 @@ def main():
         metric_for_best_model="accuracy",
         ddp_find_unused_parameters=False,
         deepspeed="/home/yangliu26/CHASE/pairwise/ds_config_lora.json",  # 该文件存储LoRA优化的DeepSpeed配置
-        gradient_accumulation_steps=2,  # 梯度累积
+        gradient_accumulation_steps=8,  # 梯度累积
         warmup_ratio=0.1,  # 预热比例
+        gradient_checkpointing=True,
     )
     
     print("⚙️ 正在初始化 Trainer...")
