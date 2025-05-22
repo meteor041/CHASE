@@ -1,13 +1,11 @@
+import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 from datasets import load_dataset, Dataset
-from transformers import (
-    AutoTokenizer, AutoModelForSequenceClassification, 
-    BitsAndBytesConfig, Trainer, TrainingArguments
-)
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
 from peft import LoraConfig, get_peft_model, TaskType, PeftModel
 import torch
 import json
-import os
-import logging
+# import evaluate
 import numpy as np
 
 # 格式化pairwise示例
@@ -54,78 +52,57 @@ def main():
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],  # 需要应用LoRA的模块
     )
     
-    logging.info("正在加载数据集...")
+    print("正在加载数据集...")
     # 加载和分割数据集
     dataset = load_json_dataset(data_path)
     dataset = dataset.train_test_split(test_size=0.1)
     
-    logging.info("正在加载模型和分词器...")
+    print("正在加载模型和分词器...")
     # 加载分词器和模型
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
-    # bnb_cfg = BitsAndBytesConfig(
-    #     load_in_4bit=True,
-    #     bnb_4bit_compute_dtype=torch.bfloat16,
-    #     bnb_4bit_use_double_quant=True,
-    #     bnb_4bit_quant_type="nf4",
-    # )
     base_model = AutoModelForSequenceClassification.from_pretrained(
         model_name, 
         num_labels=2,
-        # quantization_config=bnb_cfg,
+        trust_remote_code=True,
         torch_dtype=torch.bfloat16,
-        device_map="auto",   
+        device_map="auto"
     )
     
-    # ---------------------应用LoRA配置---------------------
-    logging.info("正在应用LoRA配置...")
+    # 应用LoRA配置
+    print("正在应用LoRA配置...")
     model = get_peft_model(base_model, lora_config)
     model.config.pad_token_id = tokenizer.pad_token_id
     model.print_trainable_parameters()  # 打印可训练参数比例
-    model.gradient_checkpointing_enable() # 启用梯度检查点 (可省 20~30 %)
+    
     # 编码函数
     def tokenize_function(examples):
-        return tokenizer(
-            examples["text"], 
-            truncation=True, 
-            padding="max_length", 
-            max_length=512
-        )
+        return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=512)
     
-    logging.info("正在处理数据集...")
-    tokenized_dataset = dataset.map(
-        tokenize_function, 
-        batched=True
-    )
-    tokenized_dataset.set_format(
-        "torch", 
-        columns=[
-            "input_ids", 
-            "attention_mask", 
-            "label"
-        ]
-    )
+    print("正在处理数据集...")
+    tokenized_dataset = dataset.map(tokenize_function, batched=True)
+    tokenized_dataset.set_format("torch", columns=["input_ids", "attention_mask", "label"])
     
-    logging.info("训练集大小:", len(tokenized_dataset["train"]))
-    logging.info("测试集大小:", len(tokenized_dataset["test"]))
+    print("训练集大小:", len(tokenized_dataset["train"]))
+    print("测试集大小:", len(tokenized_dataset["test"]))
     
-    # # 初始化分布式训练（如果需要）
-    # if not torch.distributed.is_initialized():
-    #     try:
-    #         import deepspeed
-    #         deepspeed.init_distributed()
-    #         logging.info(f"✅ 手动初始化完成: Rank {torch.distributed.get_rank()}")
-    #     except Exception as e:
-    #         logging.info(f"❌ DeepSpeed 手动初始化失败: {e}")
+    # 初始化分布式训练（如果需要）
+    if not torch.distributed.is_initialized():
+        try:
+            import deepspeed
+            deepspeed.init_distributed()
+            print(f"✅ 手动初始化完成: Rank {torch.distributed.get_rank()}")
+        except Exception as e:
+            print(f"❌ DeepSpeed 手动初始化失败: {e}")
     
-    logging.info("正在初始化训练参数...")
-    # ---------------------训练参数---------------------
+    print("正在初始化训练参数...")
+    # 训练参数
     training_args = TrainingArguments(
         output_dir=output_dir,
         eval_strategy="epoch",
         save_strategy="epoch",
-        per_device_train_batch_size=2,  # 使用LoRA可以增加批量大小
-        per_device_eval_batch_size=2,
+        per_device_train_batch_size=1,  # 使用LoRA可以增加批量大小
+        per_device_eval_batch_size=1,
         num_train_epochs=5,
         bf16=True,
         logging_dir="./logs",
@@ -135,15 +112,14 @@ def main():
         load_best_model_at_end=True,
         metric_for_best_model="accuracy",
         ddp_find_unused_parameters=False,
-        deepspeed="none",
-        # deepspeed="/home/yangliu26/CHASE/pairwise/ds_config_lora.json",  # 该文件存储LoRA优化的DeepSpeed配置
+        deepspeed="/home/yangliu26/CHASE/pairwise/ds_config_lora.json",  # 该文件存储LoRA优化的DeepSpeed配置
         gradient_accumulation_steps=8,  # 梯度累积
         warmup_ratio=0.1,  # 预热比例
+        gradient_checkpointing=True,
     )
     
-    logging.info("⚙️ 正在初始化 Trainer...")
-    
-    # ---------------------Trainer---------------------
+    print("⚙️ 正在初始化 Trainer...")
+    # Trainer
     trainer = Trainer(
         model=model,
         args=training_args,

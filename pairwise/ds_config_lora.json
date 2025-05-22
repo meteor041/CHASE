@@ -3,7 +3,7 @@
         "enabled": true
     },
     "zero_optimization": {
-        "stage": 2,
+        "stage": 3,
         "offload_optimizer": {
             "device": "cpu",
             "pin_memory": true
@@ -11,8 +11,8 @@
         "contiguous_gradients": true,
         "overlap_comm": true
     },
-    "gradient_accumulation_steps": 8,
+    "gradient_accumulation_steps": 2,
     "gradient_clipping": 1.0,
-    "train_micro_batch_size_per_gpu": 1,
+    "train_micro_batch_size_per_gpu": 4,
     "steps_per_print": 10
 }

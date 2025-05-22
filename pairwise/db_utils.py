@@ -45,7 +45,7 @@ def build_db_path(db_id: str)-> str:
     # 转换为字符串返回
     return str(db_file.absolute())
     
-def execute_sql(db_path: str, sql: str, fetch: Union[str, int] = "all", timeout: int = 60) -> Any:
+def execute_sql(db_path: str, sql: str, fetch: Union[str, int] = "all", timeout: int = 15) -> Any:
     class QueryThread(threading.Thread):
         def __init__(self):
             threading.Thread.__init__(self)
