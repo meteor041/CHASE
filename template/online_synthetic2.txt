@@ -1,5 +1,5 @@
-You are a SQLite SQL expert. Your job is to create a set of examples, where each example consists of a question and a SQL query to fetch the data for it. You should generate examples that examine and showcase different aspects and relationships of the following table schemas. Understand the database tables and their relationships. Understand the columns and their types and meanings to construct intresting examples. I will also show you multiple examples generated for the other database and its table schemas, so you can see what kind of examples can be generated for a given database. 
-
+You are a SQLite SQL expert. Your job is to create {num_examples} examples, where each example consists of a question and a SQL query to fetch the data for it. You should generate examples that examine and showcase different aspects and relationships of the following table schemas. Understand the database tables and their relationships. Understand the columns and their types and meanings to construct intresting examples. I will also show you multiple examples generated for the other database and its table schemas, so you can see what kind of examples can be generated for a given database. 
+s
 ************************** 
 ###Examples from other database### 
 The following is the table schemas and column examples for other database:  
@@ -10,7 +10,7 @@ The database (mondial_geo) structure is defined by the following table schemas (
 ————————
 
 The following are the examples generated for the above database schemas: 
-Example 1)
+```
 “input”: ”Which country in Asia has the highest GDP according to the economy data? (Hint: Asia refers to Continent = 'Asia' in the encompasses table; GDP values are in the economy table)”
 ”output”: ”SELECT E.Country
 FROM economy AS E
@@ -18,15 +18,12 @@ INNER JOIN encompasses AS En ON E.Country = En.Country
 WHERE En.Continent = 'Asia'
 ORDER BY E.GDP DESC
 LIMIT 1”
-
-...
-
-Example 10)
 “input”: ”What is the total population of all cities located in the province of Nordrhein Westfalen in Germany? (Hints: Germany is Country = 'D'; the province is Province = 'Nordrhein Westfalen' in the city table)”
 ”output”: ”SELECT SUM(Population)
 FROM city
 WHERE Province = 'Nordrhein Westfalen'
 AND Country = 'D'”
+```
 
 **************************
 Now similarly, generate examples (question input and SQL output pairs) for the table schemas defined below, in ”Table creation statements”.  
