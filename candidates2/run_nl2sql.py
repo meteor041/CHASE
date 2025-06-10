@@ -157,7 +157,7 @@ class SimpleNL2SQL:
     def call_single_prompt_with_fixer(self, 
                                       prompt:str, 
                                       item, 
-                                      max_retry:int = 3)-> Tuple[List[str], List[str]]:
+                                      max_retry:int = 1)-> Tuple[List[str], List[str]]:
         db_path = build_db_path(item.get('db_id'))
         for _ in range(max_retry):
             think, content = self.call_single_prompt(prompt)

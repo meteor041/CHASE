@@ -112,16 +112,17 @@ def evaluate_with_baseline(
 
     baseline_correct = [False] * total
     test_correct = [[False] * total for _ in range(n_tests)]
-    improved_counts = [0] * n_tests
+    difficulties = ['simple', 'moderate', 'challenging', 'unknown']
+    improved_counts = [{level: 0 for level in difficulties} for _ in range(n_tests)]
     combo_counter: Counter[str] = Counter()
 
     detail_rows: List[Dict[str, Any]] = [None] * total  # placeholder
 
-    def process(idx: int) -> Tuple[int, Dict[str, Any], bool, List[bool], List[bool], str]:
+    def process(idx: int) -> Tuple[int, Dict[str, Any], bool, List[bool], List[bool], str, str]:
         item = gold[idx]
         db_id = item.get("db_id")
         gold_sql = item.get("sql") or item.get("SQL") or item.get("best_sql") or ""
-
+        difficulty = item.get("difficulty", "unknown")
         # baseline
         base_sql = baseline[idx].get("sql") or baseline[idx].get("SQL") or baseline[idx].get("best_sql") or ""
         base_info = _compare_pair(db_id, gold_sql, base_sql, timeout)
@@ -162,20 +163,20 @@ def evaluate_with_baseline(
         # # 一次性打印多行
         # logging.info("\n".join(lines))
         label = "&".join([test_names[i] for i, v in enumerate(bools) if v]) or "None"
-        return idx, row, base_ok, bools, improves, label
+        return idx, row, base_ok, bools, improves, label, difficulty
 
     # ThreadPoolExecutor
     workers = workers or multiprocessing.cpu_count()
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(process, i): i for i in range(total)}
         for future in tqdm(as_completed(futures), total=total, desc="Evaluating samples"):
-            i, row, base_ok, bools, improves, label = future.result()
+            i, row, base_ok, bools, improves, label, difficulty = future.result()
             detail_rows[i] = row
             baseline_correct[i] = base_ok
             for k in range(n_tests):
                 test_correct[k][i] = bools[k]
                 if improves[k]:
-                    improved_counts[k] += 1
+                    improved_counts[k][difficulty] += 1
             combo_counter[label] += 1
 
     # summary

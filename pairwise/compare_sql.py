@@ -29,8 +29,8 @@ logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s - %(
 class Config:
     # model_name: str = r"/home/yangliu26/CHASE/pairwise/pairwise_selector_model/qwen3-8b-lora"
     # model_name: str = r"/data/XiYanSQL-QwenCoder-32B-2412"
-    model_name: str = r"/data/Qwen2.5-32B-Instruct"
-    output_file: str = r'/home/yangliu26/CHASE/pairwise/result/2025_5_20_qwen2.5-32B/cmp_results.json'
+    model_name: str = r"/home/yangliu26/Qwen2.5-32B"
+    output_file: str = r'/home/yangliu26/CHASE/pairwise/result/2025_5_20_qwen2.5-32B_lora/cmp_results.json'
     # 文本生成超参
     max_new_tokens: int = 1024
     do_sample: bool = True

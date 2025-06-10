@@ -52,6 +52,7 @@ class CFG:
     max_new_tokens: int = 256
     do_sample: bool = True
     temperature: float = 0.2
+    gen_temperature: float = 0.6
     use_fp16: bool = True
     device_map: str = "auto"
     # OS特定参数
@@ -107,14 +108,13 @@ def _is_valid_sql(sql: str, db_path) -> Tuple[bool, Any]:
         return False, e
 
 def call_single_prompt(prompt: str, 
-                       top_p: float = 0.9,
+                       temperature
                       ) -> Tuple[str, str]:
     try:
         response = client.chat.completions.create(
             model=CFG.model_name,
             messages=[{"role": "user", "content": prompt}],
-            temperature=CFG.temperature,
-            top_p=top_p,
+            temperature=temperature,
         )
         text = response.choices[0].message.content.strip()
     except Exception as e:
@@ -132,12 +132,12 @@ def call_single_prompt(prompt: str,
 
 def call_single_prompt_with_fixer(prompt:str, 
                                   item, 
-                                  max_retry:int = 3)-> Tuple[List[str], List[str]]:
+                                  max_retry:int = 1)-> Tuple[List[str], List[str]]:
     db_path = build_db_path(item.get('db_id'))
     thoughts = []
     contents = []
     while max_retry > 0:
-        think, content = call_single_prompt(prompt)
+        think, content = call_single_prompt(prompt, CFG.temperature)
         thoughts.append(think)
         contents.append(content)
         sql = extract_sql_from_llm(content)
@@ -158,17 +158,12 @@ def call_single_prompt_with_fixer(prompt:str,
     wrong_cnt += 1
     return thoughts, contents
 
-def llm_batch_call_vllm(prompts,
-                        do_sample: bool = True, 
-                        temperature: float = 0.6,
-                        top_p: float = 0.95,
-                        top_k: int = 20
-                        ) -> Tuple[List[str], List[str]]:
+def llm_batch_call_vllm(prompts, temperature) -> Tuple[List[str], List[str]]:
     """并发提交 prompt 到 vLLM 的 OpenAI 接口"""
     thinking_results, content_results = [None] * len(prompts), [None] * len(prompts)
     with ThreadPoolExecutor(max_workers=CFG.batch_size) as executor:
         future_to_index = {
-                    executor.submit(call_single_prompt, prompt): i
+                    executor.submit(call_single_prompt, prompt, temperature): i
             for i, prompt in enumerate(prompts)
         }
         for future in as_completed(future_to_index):
@@ -180,12 +175,7 @@ def llm_batch_call_vllm(prompts,
     return thinking_results, content_results
     
 def llm_batch_call_vllm_sql(prompts,
-                            items,
-                            do_sample: bool = True, 
-                            temperature: float = 0.6,
-                            top_p: float = 0.95,
-                            top_k: int = 20
-                            ) -> Tuple[List[str], List[str]]:
+                            items) -> Tuple[List[str], List[str]]:
     """并发提交 prompt 到 vLLM 的 OpenAI 接口"""
     thinking_results, content_results = [None] * len(items), [None] * len(items)
     with ThreadPoolExecutor(max_workers=CFG.batch_size) as executor:
@@ -222,7 +212,7 @@ def generate_examples_by_sql_features(items, num_examples: int) -> List[Tuple[st
         ) 
         for item in items
     ]
-    thoughts, texts = llm_batch_call_vllm(prompts)
+    thoughts, texts = llm_batch_call_vllm(prompts, CFG.gen_temperature)
     return prompts, thoughts, texts
 
 def generate_examples_by_schema(items, num_examples: int = 3) -> List[Tuple[str, str]]:
@@ -234,7 +224,7 @@ def generate_examples_by_schema(items, num_examples: int = 3) -> List[Tuple[str,
         )
         for item in items
     ]
-    thoughts, texts = llm_batch_call_vllm(prompts)
+    thoughts, texts = llm_batch_call_vllm(prompts, CFG.gen_temperature)
     return prompts, thoughts, texts
 
 def format_few_shot_prompt(examples_text_list, items) -> str:
